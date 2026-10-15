@@ -2258,11 +2258,11 @@ async function shopProcessInput(ctx) {
     if (!shopIsAdmin(ctx)) return;
 
     if (message !== "-") {
-      await ctx.reply("Отправьте фотографию или нажмите кнопку пропуска.");
+      await ctx.reply("Отправьте фото/видео или нажмите «Без фото/видео» либо «Готово с медиа».");
       return;
     }
 
-    await shopFinishNewProduct(ctx, data, uid, step, "");
+    await shopFinishNewProduct(ctx, data, uid, step, []);
     return;
   }
 
@@ -2323,8 +2323,8 @@ async function shopProcessInput(ctx) {
   }
 
   if (step.step === "order_phone") {
-    const phone = message.replace(/[\\s()\\-]/g, "");
-    if (phone.length < 7 || !/^\\+?[0-9]{7,15}$/.test(phone)) {
+    const phone = message.replace(/[\s()-]/g, "");
+    if (phone.length < 7 || !/^\+?[0-9]{7,15}$/.test(phone)) {
       await ctx.reply("Введите корректный номер телефона, например +380XXXXXXXXX.");
       return;
     }
