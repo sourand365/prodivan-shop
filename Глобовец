@@ -6620,7 +6620,7 @@ async function finalEarningsReport(
 const MILEAGE_COLLECTION = "courier-mileage-v1";
 const MILEAGE_KEY = "main";
 
-async async async function mileageLoad() {
+async function mileageLoad() {
   const collection = db.collection(MILEAGE_COLLECTION);
   const doc = await collection.findOne({ key: MILEAGE_KEY });
   if (doc && doc.data) {
