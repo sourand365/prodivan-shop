@@ -988,6 +988,7 @@ async function shopRenderAdminOrder(ctx, order) {
       ]);
     }
 
+    rows.push([shopButton("✏️ Изменить сумму", "shop_edit_order_total_" + order.id)]);
     rows.push([shopButton("✅ Подтвердить продажу", "shop_confirm_" + order.id)]);
     rows.push([shopButton("❌ Отменить заказ", "shop_cancel_" + order.id)]);
   }
@@ -2222,6 +2223,39 @@ async function shopProcessInput(ctx) {
     return;
   }
 
+  if (step.step === "admin_order_total") {
+    if (!shopIsAdmin(ctx)) return;
+    const total = Number(message.replace(",", "."));
+    if (!Number.isFinite(total) || total < 0 || !/^\\d+(?:[.,]\\d{1,2})?$/.test(message)) {
+      await ctx.reply("Введите сумму числом, например 250 или 250.50. Для отмены отправьте /cancel.");
+      return;
+    }
+
+    const order = shopFindOrder(data, step.orderId);
+    if (!order || order.status !== "in_progress") {
+      delete data.steps[uid];
+      await shopSave(data);
+      await ctx.reply("Заказ не найден или уже нельзя изменить его сумму.");
+      return;
+    }
+    if (order.takenBy && String(order.takenBy) !== uid) {
+      delete data.steps[uid];
+      await shopSave(data);
+      await ctx.reply("Этот заказ взят в работу другим администратором.");
+      return;
+    }
+
+    order.total = Math.round(total * 100) / 100;
+    order.totalChangedBy = uid;
+    order.totalChangedByName = shopCashAdminLabel(uid);
+    order.totalChangedAt = Date.now();
+    delete data.steps[uid];
+    await shopSave(data);
+    await ctx.reply("✅ Сумма заказа №" + order.id + " изменена на " + shopMoney(order.total) + ".");
+    await shopRenderAdminOrder(ctx, order);
+    return;
+  }
+
   if (step.step === "admin_category_name") {
     if (!shopIsAdmin(ctx)) return;
     if (message.length < 2) {
@@ -2753,6 +2787,33 @@ bot.action(/^shop_take_(.+)$/, async function (ctx) {
     console.error("SHOP TAKE ORDER ERROR:", e);
     await ctx.reply("Не удалось взять заказ в работу.");
   }
+});
+
+bot.action(/^shop_edit_order_total_(.+)$/, async function (ctx) {
+  await ctx.answerCbQuery();
+  if (!(await shopAdminOnly(ctx))) return;
+  const data = await shopLoad();
+  const order = shopFindOrder(data, ctx.match[1]);
+  if (!order) {
+    await ctx.reply("Заказ не найден.");
+    return;
+  }
+  if (order.status !== "in_progress") {
+    await ctx.reply("Сумму можно изменить только у заказа, взятого в работу.");
+    return;
+  }
+  if (order.takenBy && String(order.takenBy) !== String(ctx.from.id)) {
+    await ctx.reply("Этот заказ уже взят в работу другим администратором.");
+    return;
+  }
+  const uid = String(ctx.from.id);
+  data.steps[uid] = { step: "admin_order_total", orderId: String(order.id), startedAt: Date.now() };
+  await shopSave(data);
+  await ctx.reply(
+    "✏️ Изменение суммы заказа №" + order.id + "\\nТекущая сумма: " + shopMoney(order.total) +
+    "\\n\\nВведите новую итоговую сумму заказа (например, 250 или 250.50). Склад и количество товаров не изменятся. Для отмены отправьте /cancel.",
+    shopKeyboard([[shopButton("❌ Отмена", "shop_cancel_input")]])
+  );
 });
 
 bot.action(/^shop_confirm_(.+)$/, async function (ctx) {
