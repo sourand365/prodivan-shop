@@ -2814,8 +2814,8 @@ bot.action(/^shop_edit_order_total_(.+)$/, async function (ctx) {
   data.steps[uid] = { step: "admin_order_total", orderId: String(order.id), startedAt: Date.now() };
   await shopSave(data);
   await ctx.reply(
-    "✏️ Изменение суммы заказа №" + order.id + "\\nСумма в карточке: " + shopMoney(order.total) + "\\nСумма для клиента: " + shopMoney(order.customerTotal != null ? order.customerTotal : order.total) +
-    "\\n\\nВведите новую итоговую сумму заказа (например, 250 или 250.50). Склад и количество товаров не изменятся. Для отмены отправьте /cancel.",
+    "✏️ Изменение суммы заказа №" + order.id + "\nСумма в карточке: " + shopMoney(order.total) + "\nСумма для клиента: " + shopMoney(order.customerTotal != null ? order.customerTotal : order.total) +
+    "\n\nВведите новую итоговую сумму заказа (например, 250 или 250.50). Склад и количество товаров не изменятся. Для отмены отправьте /cancel.",
     shopKeyboard([[shopButton("❌ Отмена", "shop_cancel_input")]])
   );
 });
