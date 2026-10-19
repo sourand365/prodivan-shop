@@ -889,7 +889,7 @@ async function shopConfirmOrder(ctx, orderId) {
     if (!data.cash || !data.cash.balances) data.cash = { balances: {}, history: [] };
     if (!Array.isArray(data.cash.history)) data.cash.history = [];
     if (!Number.isFinite(Number(data.cash.balances[cashAdminId]))) data.cash.balances[cashAdminId] = 0;
-    const creditedAmount = Math.round(Number(order.total || 0) * 100) / 100;
+    const creditedAmount = Math.round(Number(order.customerTotal != null ? order.customerTotal : order.total || 0) * 100) / 100;
     data.cash.balances[cashAdminId] = Math.round((Number(data.cash.balances[cashAdminId]) + creditedAmount) * 100) / 100;
     order.cashCreditedAt = Date.now();
     order.cashCreditedTo = cashAdminId;
@@ -904,7 +904,7 @@ async function shopConfirmOrder(ctx, orderId) {
     await bot.telegram.sendMessage(
       Number(order.userId),
       "✅ Продажа по заказу №" + order.id + " подтверждена!\n\n" +
-      "Сумма: " + shopMoney(order.total)
+      "Сумма к оплате: " + shopMoney(order.customerTotal != null ? order.customerTotal : order.total)
     );
   } catch (e) {
     console.error("SHOP CUSTOMER CONFIRM ERROR:", e);
@@ -2245,14 +2245,18 @@ async function shopProcessInput(ctx) {
       return;
     }
 
-    order.total = Math.round(total * 100) / 100;
-    order.totalChangedBy = uid;
-    order.totalChangedByName = shopCashAdminLabel(uid);
-    order.totalChangedAt = Date.now();
+    // Цена товаров и сумма в карточке заказа остаются исходными.
+    // Отдельно сохраняем персональную сумму к оплате для клиента.
+    order.customerTotal = Math.round(total * 100) / 100;
+    order.customerTotalChangedBy = uid;
+    order.customerTotalChangedByName = shopCashAdminLabel(uid);
+    order.customerTotalChangedAt = Date.now();
     delete data.steps[uid];
     await shopSave(data);
-    await ctx.reply("✅ Сумма заказа №" + order.id + " изменена на " + shopMoney(order.total) + ".");
-    await shopRenderAdminOrder(ctx, order);
+    await ctx.reply(
+      "✅ Для клиента по заказу №" + order.id + " установлена сумма к оплате: " +
+      shopMoney(order.customerTotal) + ". Карточка заказа и цены товаров не изменены."
+    );
     return;
   }
 
@@ -2810,7 +2814,7 @@ bot.action(/^shop_edit_order_total_(.+)$/, async function (ctx) {
   data.steps[uid] = { step: "admin_order_total", orderId: String(order.id), startedAt: Date.now() };
   await shopSave(data);
   await ctx.reply(
-    "✏️ Изменение суммы заказа №" + order.id + "\\nТекущая сумма: " + shopMoney(order.total) +
+    "✏️ Изменение суммы заказа №" + order.id + "\\nСумма в карточке: " + shopMoney(order.total) + "\\nСумма для клиента: " + shopMoney(order.customerTotal != null ? order.customerTotal : order.total) +
     "\\n\\nВведите новую итоговую сумму заказа (например, 250 или 250.50). Склад и количество товаров не изменятся. Для отмены отправьте /cancel.",
     shopKeyboard([[shopButton("❌ Отмена", "shop_cancel_input")]])
   );
