@@ -6810,7 +6810,7 @@ bot.hears(
 
         "━━━━━━━━━━━━━━\n" +
 
-        `💰 ИТОГО — ${report.total} грн` +
+        `💰 ИТОГО — ${report.total} грн\n` +
         `🏍 Пробег за день — ${await mileageForDate(ctx.from.id, finalEarningsToday())} км`
       );
 
@@ -7737,8 +7737,6 @@ async function finalEarningsShowPeriod(
       text +=
         `💰 ИТОГО — ${mine.total} грн\n`;
 
-      text +=
-        `🏍 Пробег за период — ${await mileageForPeriod(userId, period)} км\n`;
 
 
       if (
@@ -7785,6 +7783,9 @@ async function finalEarningsShowPeriod(
             : "месяца"
           } не установлена`;
       }
+
+      text +=
+        `🏍 Пробег за период — ${await mileageForPeriod(userId, period)} км\n`;
 
       await ctx.reply(
         text
