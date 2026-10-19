@@ -728,8 +728,8 @@ async function shopShowOrderInfo(ctx, orderId) {
 
 function shopCashAdminLabel(adminId) {
   const id = String(adminId);
-  return id === SHOP_ADMINS[0] ? "Администратор №1" :
-    id === SHOP_ADMINS[1] ? "Администратор №2" : "Администратор " + id;
+  return id === SHOP_ADMINS[0] ? "Олександр" :
+    id === SHOP_ADMINS[1] ? "Андрей" : "Администратор " + id;
 }
 
 async function shopCashMenu(ctx) {
