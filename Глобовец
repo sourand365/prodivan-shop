@@ -6620,7 +6620,7 @@ async function finalEarningsReport(
 const MILEAGE_COLLECTION = "courier-mileage-v1";
 const MILEAGE_KEY = "main";
 
-async async function mileageLoad() {
+async async async function mileageLoad() {
   const collection = db.collection(MILEAGE_COLLECTION);
   const doc = await collection.findOne({ key: MILEAGE_KEY });
   if (doc && doc.data) {
@@ -7807,12 +7807,7 @@ async function finalEarningsShowPeriod(
 
     } else {
 
-      data.result.forEach(
-        (
-          item,
-          index
-        ) => {
-
+      for (const [index, item] of data.result.entries()) {
           const goal =
             data.state.goals?.[
             period
@@ -7892,7 +7887,6 @@ async function finalEarningsShowPeriod(
           text +=
             "\n";
         }
-      );
     }
 
     await ctx.reply(
