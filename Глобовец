@@ -6717,6 +6717,56 @@ async function mileageAllForPeriod(period) {
   return result;
 }
 
+bot.hears(/^км\\s+отмена$/i, async ctx => {
+  try {
+    const state = await mileageLoad();
+    const id = String(ctx.from.id);
+    const today = mileageDateKey();
+    const user = state.users[id];
+    const day = user && user.days && user.days[today];
+    if (!day || !Array.isArray(day.readings) || day.readings.length === 0) {
+      await ctx.reply("ℹ️ За сегодня нет показаний пробега, которые можно отменить.");
+      return;
+    }
+
+    const readings = day.readings;
+    let baselineCount = 0;
+    const priorDates = Object.keys(user.days).filter(k => k < today).sort();
+    if (priorDates.length) {
+      const priorDay = user.days[priorDates[priorDates.length - 1]];
+      const priorReadings = priorDay && priorDay.readings;
+      if (Array.isArray(priorReadings) && priorReadings.length &&
+          Number(readings[0]) === Number(priorReadings[priorReadings.length - 1])) {
+        baselineCount = 1;
+      }
+    }
+
+    if (readings.length <= baselineCount) {
+      await ctx.reply("ℹ️ Сегодня ещё нет внесённых показаний для отмены. Последнее показание прошлого дня сохранено как начальная точка.");
+      return;
+    }
+
+    const removed = readings.pop();
+    if (readings.length === 0) {
+      delete user.days[today];
+    } else {
+      day.readings = readings;
+      day.updatedAt = Date.now();
+    }
+    await mileageSave(state);
+    const distance = mileageDistance(readings);
+    await ctx.reply(
+      "↩️ Последнее показание отменено: " + mileageFormat(removed) + " км" +
+      "\\nОсталось показаний за сегодня: " + readings.length +
+      "\\nПробег за день после отмены: " + mileageFormat(distance) + " км"
+    );
+  } catch (error) {
+    console.error("MILEAGE CANCEL ERROR:", error);
+    await ctx.reply("❌ Не удалось отменить последнее показание.");
+  }
+});
+
+
 bot.hears(/^км(?:\s+(\d+(?:[.,]\d+)?))?$/i, async ctx => {
   try {
     const raw = ctx.match && ctx.match[1];
