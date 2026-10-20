@@ -28,7 +28,6 @@ async function shopLoad() {
         carts: {},
         steps: {},
         broadcastMode: {},
-        cash: { balances: {}, history: [] },
         counters: {
           category: 1,
           subcategory: 1,
@@ -42,9 +41,7 @@ async function shopLoad() {
 
   const d = record.data || {};
 
-  // ГЛОБАЛЬНЫЙ СБРОС МАГАЗИНА v1: выполняется только один раз после установки обновления.
-  // Очищает каталог, заказы, корзины, пользователей, группы, кассу и временные состояния.
-  // При следующих запусках данные не очищаются повторно.
+  // Full store reset v1; runs only once after deploying this version.
   if (Number(d.storeResetVersion || 0) < 1) {
     d.categories = [];
     d.subcategories = [];
@@ -74,19 +71,13 @@ async function shopLoad() {
 
   if (!d.counters || typeof d.counters !== "object") d.counters = {};
 
-  // Касса: миграция без потери существующих данных магазина.
-  if (!d.cash || typeof d.cash !== "object" || Array.isArray(d.cash)) d.cash = {};
-  if (!d.cash.balances || typeof d.cash.balances !== "object" || Array.isArray(d.cash.balances)) d.cash.balances = {};
-  if (!Array.isArray(d.cash.history)) d.cash.history = [];
-  SHOP_ADMINS.forEach(function (adminId) {
-    if (!Number.isFinite(Number(d.cash.balances[adminId]))) d.cash.balances[adminId] = 0;
-  });
-
   ["category", "subcategory", "product", "order"].forEach(function (key) {
     if (!Number(d.counters[key])) d.counters[key] = 1;
   });
 
   // Миграция старых товаров и заказов
+  d.categories.forEach(function (c) { if (!["goods", "rent", "parts"].includes(String(c.section))) c.section = "goods"; });
+
   d.products.forEach(function (p) {
     p.stock = Math.max(0, Math.floor(Number(p.stock) || 0));
     p.reserved = Math.max(0, Math.floor(Number(p.reserved) || 0));
@@ -229,11 +220,9 @@ function shopOrderDetails(order) {
     "Статус: " + shopOrderStatusText(order.status),
     "Взял в работу: " + (order.takenByName || "—"),
     "",
-    "Имя: " + (order.customerName || "—"),
     "Telegram: " + (order.username ? "@" + order.username : "username отсутствует"),
     "Telegram ID: " + order.userId,
     "Телефон: " + (order.phone || "—"),
-    "Адрес: " + (order.address || "—"),
     "",
     "Товары:"
   ];
@@ -310,7 +299,6 @@ async function shopShowCategories(ctx) {
     [shopButton("🛒 Корзина", "shop_cart")],
     [shopButton("⬅️ Главное меню", "shop_home")]
   ];
-
   await ctx.reply("🛍 КАТАЛОГ\n\nВыберите главный раздел:", shopKeyboard(rows));
 }
 
@@ -319,7 +307,6 @@ async function shopShowSection(ctx, section) {
     await ctx.reply("Раздел не найден.");
     return;
   }
-
   const data = await shopLoad();
   const categories = data.categories.filter(function (c) {
     return String(c.section || "goods") === String(section);
@@ -327,13 +314,11 @@ async function shopShowSection(ctx, section) {
   const rows = categories.map(function (c) {
     return [shopButton("📁 " + c.name, "shop_cat_" + c.id)];
   });
-
   rows.push([shopButton("🛒 Корзина", "shop_cart")]);
   rows.push([shopButton("⬅️ Все разделы", "shop_catalog")]);
-
   await ctx.reply(
     "📚 " + shopSectionName(section) + "\n\n" +
-    (categories.length ? "Выберите категорию:" : "В этом разделе пока нет категорий. Скоро они появятся."),
+    (categories.length ? "Выберите категорию:" : "В этом разделе пока нет категорий. Добавьте их через админ-панель."),
     shopKeyboard(rows)
   );
 }
@@ -418,6 +403,21 @@ async function shopShowSubcategory(ctx, subcategoryId) {
   );
 }
 
+function shopGetProductMedia(product) {
+  if (Array.isArray(product.media)) {
+    return product.media
+      .filter(function (item) {
+        return item && (item.file_id || item.media) &&
+          (item.type === "photo" || item.type === "video");
+      })
+      .map(function (item) {
+        return { type: item.type, file_id: item.file_id || item.media };
+      })
+      .slice(0, 10);
+  }
+  return product.photo ? [{ type: "photo", file_id: product.photo }] : [];
+}
+
 async function shopShowProduct(ctx, productId) {
   const data = await shopLoad();
   const product = shopFindProduct(data, productId);
@@ -444,18 +444,36 @@ async function shopShowProduct(ctx, productId) {
   rows.push([shopButton("🛒 Открыть корзину", "shop_cart")]);
   rows.push([shopButton("⬅️ Каталог", "shop_catalog")]);
 
-  if (product.photo) {
+  const media = shopGetProductMedia(product);
+  if (media.length > 1) {
     try {
-      await ctx.replyWithPhoto(product.photo, {
-        caption: text,
-        reply_markup: { inline_keyboard: rows }
-      });
+      await ctx.replyWithMediaGroup(media.map(function (item) {
+        return { type: item.type, media: item.file_id };
+      }));
+      await ctx.reply(text, shopKeyboard(rows));
       return;
     } catch (e) {
-      console.error("SHOP PHOTO ERROR:", e);
+      console.error("SHOP MEDIA GROUP ERROR:", e);
+    }
+  } else if (media.length === 1) {
+    try {
+      const item = media[0];
+      if (item.type === "video") {
+        await ctx.replyWithVideo(item.file_id, {
+          caption: text,
+          reply_markup: { inline_keyboard: rows }
+        });
+      } else {
+        await ctx.replyWithPhoto(item.file_id, {
+          caption: text,
+          reply_markup: { inline_keyboard: rows }
+        });
+      }
+      return;
+    } catch (e) {
+      console.error("SHOP PRODUCT MEDIA ERROR:", e);
     }
   }
-
   await ctx.reply(text, shopKeyboard(rows));
 }
 
@@ -594,12 +612,14 @@ async function shopBeginCheckout(ctx) {
   }
 
   delete data.broadcastMode[userId];
-  data.steps[userId] = { step: "order_name" };
+  data.steps[userId] = { step: "order_phone" };
   await shopSave(data);
 
   await ctx.reply(
-    "📝 Оформление заказа.\n\nВведите имя и фамилию.\n\n" +
-    "Username Telegram будет сохранён автоматически, если он указан в профиле.",
+    "📝 Оформление заказа.\n\n" +
+    "Введите номер телефона для связи.\n" +
+    "Ваш Telegram username сохранится автоматически" +
+    (ctx.from.username ? ": @" + ctx.from.username + "." : ". Если username не указан в профиле, будет сохранён Telegram ID."),
     shopKeyboard([
       [shopButton("❌ Отменить оформление", "shop_cancel_input")]
     ])
@@ -661,7 +681,7 @@ async function shopFinishCheckout(ctx, data, userId, stepData, address) {
     username: ctx.from.username || "",
     customerName: stepData.name || shopUserName(ctx),
     phone: stepData.phone || "",
-    address: address,
+    address: "",
     items: items,
     total: total,
     status: "new",
@@ -771,78 +791,6 @@ async function shopShowOrderInfo(ctx, orderId) {
 }
 
 // ============================================================
-// CASH REGISTER — separate balances, shared withdrawal permissions
-// ============================================================
-
-function shopCashAdminLabel(adminId) {
-  const id = String(adminId);
-  return id === SHOP_ADMINS[0] ? "Олександр" :
-    id === SHOP_ADMINS[1] ? "Андрей" : "Администратор " + id;
-}
-
-async function shopCashMenu(ctx) {
-  if (!(await shopAdminOnly(ctx))) return;
-  const data = await shopLoad();
-  const rows = [];
-  SHOP_ADMINS.forEach(function (id) {
-    rows.push([shopButton("💰 " + shopCashAdminLabel(id) + " — " + shopMoney(data.cash.balances[id]), "shop_cash_account_" + id)]);
-  });
-  rows.push([shopButton("📜 История кассы", "shop_cash_history")]);
-  rows.push([shopButton("⬅️ Админ-панель", "shop_admin")]);
-  await ctx.reply("💰 КАССА МАГАЗИНА\n\nВыберите кассу для просмотра или снятия денег. Оба администратора могут управлять обеими кассами.", shopKeyboard(rows));
-}
-
-async function shopCashAccount(ctx, adminId) {
-  if (!(await shopAdminOnly(ctx))) return;
-  if (!SHOP_ADMINS.includes(String(adminId))) { await ctx.reply("Касса не найдена."); return; }
-  const data = await shopLoad();
-  const balance = Number(data.cash.balances[adminId] || 0);
-  const rows = [[shopButton("💸 Снять деньги", "shop_cash_withdraw_" + adminId)],
-    [shopButton("📜 История этой кассы", "shop_cash_history_" + adminId)],
-    [shopButton("⬅️ Все кассы", "shop_cash")]];
-  await ctx.reply("💰 " + shopCashAdminLabel(adminId) + "\n\nДоступный баланс: " + shopMoney(balance), shopKeyboard(rows));
-}
-
-async function shopCashHistory(ctx, adminId) {
-  if (!(await shopAdminOnly(ctx))) return;
-  const data = await shopLoad();
-  let history = data.cash.history.slice().reverse();
-  if (adminId) history = history.filter(function (entry) { return String(entry.accountId) === String(adminId); });
-  history = history.slice(0, 30);
-  if (!history.length) { await ctx.reply("📜 История кассы пока пуста.", shopKeyboard([[shopButton("⬅️ К кассе", "shop_cash")]])); return; }
-  const lines = history.map(function (entry) {
-    const date = new Date(entry.at || Date.now()).toLocaleString("uk-UA", { timeZone: "Europe/Kyiv" });
-    const sign = Number(entry.amount) >= 0 ? "+" : "−";
-    return "• " + date + "\n  " + (entry.type === "sale" ? "✅ Закрытие заказа №" + entry.orderId : "💸 Снятие денег") + "\n  Касса: " + shopCashAdminLabel(entry.accountId) + "\n  Сумма: " + sign + shopMoney(Math.abs(Number(entry.amount))) + "\n  Выполнил: " + (entry.actorName || entry.actorId || "—");
-  });
-  await ctx.reply("📜 ИСТОРИЯ КАССЫ\n\n" + lines.join("\n\n"), shopKeyboard([[shopButton("⬅️ К кассе", "shop_cash")]]));
-}
-
-async function shopCashBeginWithdraw(ctx, adminId) {
-  if (!(await shopAdminOnly(ctx))) return;
-  if (!SHOP_ADMINS.includes(String(adminId))) { await ctx.reply("Касса не найдена."); return; }
-  const data = await shopLoad();
-  const balance = Number(data.cash.balances[adminId] || 0);
-  if (balance <= 0) { await ctx.reply("В этой кассе нет денег для снятия.", shopKeyboard([[shopButton("⬅️ Назад", "shop_cash_account_" + adminId)]])); return; }
-  data.steps[String(ctx.from.id)] = { step: "cash_withdraw_amount", accountId: String(adminId) };
-  await shopSave(data);
-  await ctx.reply("💸 Снятие с кассы «" + shopCashAdminLabel(adminId) + "».\nДоступно: " + shopMoney(balance) + "\n\nВведите сумму для снятия цифрами (например: 250 или 250.50). Для отмены отправьте /cancel.");
-}
-
-async function shopCashFinishWithdraw(ctx, data, uid, step, rawAmount) {
-  const accountId = String(step.accountId);
-  const amount = Math.round(Number(rawAmount.replace(",", ".")) * 100) / 100;
-  const balance = Number(data.cash.balances[accountId] || 0);
-  if (!Number.isFinite(amount) || amount <= 0) { await ctx.reply("Введите корректную сумму больше нуля, например 250 или 250.50."); return; }
-  if (amount > balance + 0.000001) { await ctx.reply("Недостаточно денег в кассе. Доступно: " + shopMoney(balance) + ". Введите меньшую сумму или /cancel."); return; }
-  data.cash.balances[accountId] = Math.round((balance - amount) * 100) / 100;
-  data.cash.history.push({ id: "cash_" + Date.now() + "_" + uid, type: "withdrawal", accountId: accountId, amount: -amount, actorId: uid, actorName: shopUserName(ctx), at: Date.now() });
-  delete data.steps[uid];
-  await shopSave(data);
-  await ctx.reply("✅ Снятие записано в историю.\nКасса: " + shopCashAdminLabel(accountId) + "\nСнято: " + shopMoney(amount) + "\nОстаток: " + shopMoney(data.cash.balances[accountId]), shopKeyboard([[shopButton("💰 Касса", "shop_cash")], [shopButton("📜 История", "shop_cash_history")]]));
-}
-
-// ============================================================
 // ORDER WORKFLOW: NEW -> IN_PROGRESS -> CONFIRMED
 // CANCELLATION RELEASES RESERVED STOCK
 // ============================================================
@@ -930,20 +878,6 @@ async function shopConfirmOrder(ctx, orderId) {
   order.confirmedByName = shopUserName(ctx);
   order.confirmedAt = Date.now();
 
-  // Начисляем полную сумму заказа на кассу администратора, закрывшего заказ.
-  // Статус in_progress защищает от повторного начисления при повторном нажатии.
-  const cashAdminId = String(ctx.from.id);
-  if (!order.cashCreditedAt) {
-    if (!data.cash || !data.cash.balances) data.cash = { balances: {}, history: [] };
-    if (!Array.isArray(data.cash.history)) data.cash.history = [];
-    if (!Number.isFinite(Number(data.cash.balances[cashAdminId]))) data.cash.balances[cashAdminId] = 0;
-    const creditedAmount = Math.round(Number(order.customerTotal != null ? order.customerTotal : order.total || 0) * 100) / 100;
-    data.cash.balances[cashAdminId] = Math.round((Number(data.cash.balances[cashAdminId]) + creditedAmount) * 100) / 100;
-    order.cashCreditedAt = Date.now();
-    order.cashCreditedTo = cashAdminId;
-    data.cash.history.push({ id: "sale_" + order.id, type: "sale", orderId: String(order.id), accountId: cashAdminId, amount: creditedAmount, actorId: cashAdminId, actorName: shopUserName(ctx), at: Date.now() });
-  }
-
   await shopSave(data);
 
   await ctx.reply("✅ Продажа по заказу №" + order.id + " подтверждена.");
@@ -952,7 +886,7 @@ async function shopConfirmOrder(ctx, orderId) {
     await bot.telegram.sendMessage(
       Number(order.userId),
       "✅ Продажа по заказу №" + order.id + " подтверждена!\n\n" +
-      "Сумма к оплате: " + shopMoney(order.customerTotal != null ? order.customerTotal : order.total)
+      "Сумма: " + shopMoney(order.total)
     );
   } catch (e) {
     console.error("SHOP CUSTOMER CONFIRM ERROR:", e);
@@ -1036,7 +970,6 @@ async function shopRenderAdminOrder(ctx, order) {
       ]);
     }
 
-    rows.push([shopButton("✏️ Изменить сумму", "shop_edit_order_total_" + order.id)]);
     rows.push([shopButton("✅ Подтвердить продажу", "shop_confirm_" + order.id)]);
     rows.push([shopButton("❌ Отменить заказ", "shop_cancel_" + order.id)]);
   }
@@ -1046,7 +979,8 @@ async function shopRenderAdminOrder(ctx, order) {
   await ctx.reply(shopOrderDetails(order), shopKeyboard(rows));
 }
 
-// ============================================================// ADMIN MENU
+// ============================================================
+// ADMIN MENU
 // ============================================================
 
 async function shopAdminMenu(ctx) {
@@ -1064,7 +998,6 @@ async function shopAdminMenu(ctx) {
         shopButton("📦 Товары и склад", "shop_admin_products")
       ],
       [shopButton("🧾 Заказы", "shop_admin_orders")],
-      [shopButton("💰 Касса", "shop_cash")],
       [shopButton("📣 Рассылка", "shop_broadcast_menu")],
       [shopButton("👥 Подключённые группы", "shop_admin_groups")],
       [shopButton("⬅️ Главное меню", "shop_home")]
@@ -1079,7 +1012,7 @@ async function shopAdminCategories(ctx) {
   const rows = [[shopButton("➕ Добавить категорию", "shop_admin_addcategory")]];
 
   data.categories.forEach(function (c) {
-    rows.push([shopButton("📁 " + c.name, "shop_admin_category_" + c.id)]);
+    rows.push([shopButton("📁 " + shopSectionName(c.section || "goods") + " · " + c.name, "shop_admin_category_" + c.id)]);
   });
 
   rows.push([shopButton("⬅️ Админ-панель", "shop_admin")]);
@@ -1244,26 +1177,6 @@ async function shopDeleteCategory(ctx, categoryId) {
       return String(s.id);
     });
 
-  const categoryProductIds = data.products.filter(function (p) {
-    return String(p.categoryId) === String(category.id) ||
-      subIds.includes(String(p.subcategoryId));
-  }).map(function (p) { return String(p.id); });
-
-  const activeOrder = data.orders.find(function (order) {
-    return ["new", "in_progress"].includes(String(order.status)) &&
-      Array.isArray(order.items) && order.items.some(function (item) {
-        return categoryProductIds.includes(String(item.productId));
-      });
-  });
-
-  if (activeOrder) {
-    await ctx.reply(
-      "❌ Нельзя удалить категорию: товар из неё есть в активном заказе №" + activeOrder.id + ".\n\nСначала завершите или отмените этот заказ. История заказов сохранится.",
-      shopKeyboard([[shopButton("⬅️ К категории", "shop_admin_category_" + category.id)], [shopButton("🧾 Все заказы", "shop_admin_orders")]])
-    );
-    return;
-  }
-
   data.products = data.products.filter(function (p) {
     return String(p.categoryId) !== String(category.id);
   });
@@ -1342,7 +1255,6 @@ async function shopDeleteSubcategory(ctx, subId) {
 
 async function shopBeginAddCategory(ctx) {
   if (!(await shopAdminOnly(ctx))) return;
-
   await ctx.reply("➕ ДОБАВЛЕНИЕ КАТЕГОРИИ\n\nВыберите главный раздел:",
     shopKeyboard([
       [shopButton("🛍 Товары", "shop_admin_addcategory_section_goods")],
@@ -1358,14 +1270,9 @@ async function shopBeginAddCategoryInSection(ctx, section) {
     await ctx.reply("Главный раздел не найден.");
     return;
   }
-
   const data = await shopLoad();
-  data.steps[String(ctx.from.id)] = {
-    step: "admin_category_name",
-    section: String(section)
-  };
+  data.steps[String(ctx.from.id)] = { step: "admin_category_name", section: String(section) };
   await shopSave(data);
-
   await ctx.reply("Раздел: " + shopSectionName(section) + "\n\nВведите название категории:",
     shopKeyboard([[shopButton("❌ Отмена", "shop_cancel_input")]]));
 }
@@ -1423,7 +1330,7 @@ async function shopBeginAddProduct(ctx) {
   }
 
   const rows = data.categories.map(function (c) {
-    return [shopButton("📁 " + shopSectionName(c.section || "goods") + " · " + c.name, "shop_wiz_product_category_" + c.id)];
+    return [shopButton("📁 " + c.name, "shop_wiz_product_category_" + c.id)];
   });
 
   rows.push([shopButton("❌ Отмена", "shop_cancel_input")]);
@@ -1489,7 +1396,7 @@ async function shopStartProductFields(ctx, categoryId, subcategoryId) {
     shopKeyboard([[shopButton("❌ Отмена", "shop_cancel_input")]]));
 }
 
-async function shopFinishNewProduct(ctx, data, userId, stepData, photo) {
+async function shopFinishNewProduct(ctx, data, userId, stepData, media) {
   const category = shopFindCategory(data, stepData.categoryId);
 
   if (!category) {
@@ -1511,7 +1418,8 @@ async function shopFinishNewProduct(ctx, data, userId, stepData, photo) {
     reserved: 0,
     status: Number(stepData.stock) > 0 ? "available" : "out",
     description: stepData.description || "",
-    photo: photo || "",
+    media: Array.isArray(media) ? media.slice(0, 10) : (media ? [{ type: "photo", file_id: media }] : []),
+    photo: (Array.isArray(media) ? (media.find(function (item) { return item && item.type === "photo"; }) || {}).file_id : media) || "",
     createdAt: Date.now()
   };
 
@@ -1592,7 +1500,7 @@ async function shopManageProduct(ctx, productId) {
       [shopButton("✏️ Изменить название", "shop_edit_name_" + p.id),
        shopButton("💰 Изменить цену", "shop_edit_price_" + p.id)],
       [shopButton("📝 Изменить описание", "shop_edit_description_" + p.id)],
-      [shopButton("🖼 Изменить фото", "shop_edit_photo_" + p.id)],
+      [shopButton("🖼 Изменить фото/видео", "shop_edit_photo_" + p.id)],
       [shopButton("🔢 Изменить остаток", "shop_edit_stock_" + p.id)],
       [shopButton("📌 Изменить статус", "shop_edit_status_" + p.id)],
       [shopButton("🗑 Удалить товар", "shop_delete_product_" + p.id)],
@@ -1608,7 +1516,7 @@ async function shopBeginEditProductField(ctx, productId, field) {
     name: { step: "admin_edit_product_name", prompt: "Введите новое название товара:" },
     price: { step: "admin_edit_product_price", prompt: "Введите новую цену числом, например 125.50:" },
     description: { step: "admin_edit_product_description", prompt: "Введите новое описание товара. Чтобы очистить описание, отправьте - :" },
-    photo: { step: "admin_edit_product_photo", prompt: "Отправьте новую фотографию товара. Чтобы удалить фотографию, нажмите кнопку ниже." }
+    photo: { step: "admin_edit_product_photo", prompt: "Отправьте до 10 фото и/или видео товара. Текущие медиа будут заменены. После отправки нажмите «Готово с медиа»." }
   };
   const config = allowed[field];
   if (!config) {
@@ -1625,7 +1533,8 @@ async function shopBeginEditProductField(ctx, productId, field) {
 
   data.steps[String(ctx.from.id)] = {
     step: config.step,
-    productId: String(p.id)
+    productId: String(p.id),
+    media: []
   };
   await shopSave(data);
 
@@ -2064,7 +1973,8 @@ async function shopRenderGroupSelection(ctx) {
   const rows = data.groups.map(function (g, i) {
     return [shopButton(
       (selected.includes(String(g.chatId)) ? "✅ " : "▫️ ") + g.title,
-      "shop_broadcast_toggle_" + i    )];
+      "shop_broadcast_toggle_" + i
+    )];
   });
 
   rows.push([
@@ -2284,49 +2194,6 @@ async function shopProcessInput(ctx) {
   const step = data.steps[uid];
   if (!step) return;
 
-  if (step.step === "cash_withdraw_amount") {
-    if (!shopIsAdmin(ctx)) return;
-    await shopCashFinishWithdraw(ctx, data, uid, step, message);
-    return;
-  }
-
-  if (step.step === "admin_order_total") {
-    if (!shopIsAdmin(ctx)) return;
-    const total = Number(message.replace(",", "."));
-    if (!Number.isFinite(total) || total < 0 || !/^\\d+(?:[.,]\\d{1,2})?$/.test(message)) {
-      await ctx.reply("Введите сумму числом, например 250 или 250.50. Для отмены отправьте /cancel.");
-      return;
-    }
-
-    const order = shopFindOrder(data, step.orderId);
-    if (!order || order.status !== "in_progress") {
-      delete data.steps[uid];
-      await shopSave(data);
-      await ctx.reply("Заказ не найден или уже нельзя изменить его сумму.");
-      return;
-    }
-    if (order.takenBy && String(order.takenBy) !== uid) {
-      delete data.steps[uid];
-      await shopSave(data);
-      await ctx.reply("Этот заказ взят в работу другим администратором.");
-      return;
-    }
-
-    // Цена товаров и сумма в карточке заказа остаются исходными.
-    // Отдельно сохраняем персональную сумму к оплате для клиента.
-    order.customerTotal = Math.round(total * 100) / 100;
-    order.customerTotalChangedBy = uid;
-    order.customerTotalChangedByName = shopCashAdminLabel(uid);
-    order.customerTotalChangedAt = Date.now();
-    delete data.steps[uid];
-    await shopSave(data);
-    await ctx.reply(
-      "✅ Для клиента по заказу №" + order.id + " установлена сумма к оплате: " +
-      shopMoney(order.customerTotal) + ". Карточка заказа и цены товаров не изменены."
-    );
-    return;
-  }
-
   if (step.step === "admin_category_name") {
     if (!shopIsAdmin(ctx)) return;
     if (message.length < 2) {
@@ -2432,11 +2299,13 @@ async function shopProcessInput(ctx) {
 
     step.description = message === "-" ? "" : message;
     step.step = "admin_product_photo";
+    step.media = [];
     await shopSave(data);
 
-    await ctx.reply("Отправьте фотографию товара или нажмите «Пропустить».",
+    await ctx.reply("Отправьте до 10 фото и/или видео товара. Когда закончите, нажмите «Готово с медиа».",
       shopKeyboard([
-        [shopButton("⏭ Пропустить фотографию", "shop_product_photo_skip")],
+        [shopButton("✅ Готово с медиа", "shop_media_done")],
+        [shopButton("⏭ Без фото/видео", "shop_product_photo_skip")],
         [shopButton("❌ Отмена", "shop_cancel_input")]
       ]));
     return;
@@ -2446,11 +2315,11 @@ async function shopProcessInput(ctx) {
     if (!shopIsAdmin(ctx)) return;
 
     if (message !== "-") {
-      await ctx.reply("Отправьте фотографию или нажмите кнопку пропуска.");
+      await ctx.reply("Отправьте фото/видео или нажмите «Без фото/видео» либо «Готово с медиа».");
       return;
     }
 
-    await shopFinishNewProduct(ctx, data, uid, step, "");
+    await shopFinishNewProduct(ctx, data, uid, step, []);
     return;
   }
 
@@ -2462,7 +2331,7 @@ async function shopProcessInput(ctx) {
 
   if (step.step === "admin_edit_product_photo") {
     if (!shopIsAdmin(ctx)) return;
-    await ctx.reply("Для изменения фотографии отправьте именно фотографию или нажмите «Удалить фотографию».");
+    await ctx.reply("Отправьте фото/видео товара, затем нажмите «Готово с медиа». Для отмены нажмите «Отмена».");
     return;
   }
 
@@ -2510,39 +2379,15 @@ async function shopProcessInput(ctx) {
     return;
   }
 
-  if (step.step === "order_name") {
-    if (message.length < 2) {
-      await ctx.reply("Введите имя и фамилию.");
-      return;
-    }
-
-    step.name = message;
-    step.step = "order_phone";
-    await shopSave(data);
-    await ctx.reply("Введите номер телефона для связи.");
-    return;
-  }
-
   if (step.step === "order_phone") {
-    if (message.length < 5) {
-      await ctx.reply("Введите корректный номер телефона.");
+    const phone = message.replace(/[\s()-]/g, "");
+    if (phone.length < 7 || !/^\+?[0-9]{7,15}$/.test(phone)) {
+      await ctx.reply("Введите корректный номер телефона, например +380XXXXXXXXX.");
       return;
     }
 
     step.phone = message;
-    step.step = "order_address";
-    await shopSave(data);
-    await ctx.reply("Введите полный адрес доставки.");
-    return;
-  }
-
-  if (step.step === "order_address") {
-    if (message.length < 4) {
-      await ctx.reply("Введите полный адрес доставки.");
-      return;
-    }
-
-    await shopFinishCheckout(ctx, data, uid, step, message);
+    await shopFinishCheckout(ctx, data, uid, step, "");
   }
 }
 
@@ -2721,7 +2566,7 @@ bot.action(/^shop_admin_category_(.+)$/, async function (ctx) {
   await shopAdminCategoryInfo(ctx, ctx.match[1]);
 });
 
-bot.action(/^shop_delete_cat_(?!yes_)(.+)$/, async function (ctx) {
+bot.action(/^shop_delete_cat_(.+)$/, async function (ctx) {
   await ctx.answerCbQuery();
   await shopDeleteCategoryConfirm(ctx, ctx.match[1]);
 });
@@ -2774,7 +2619,44 @@ bot.action("shop_product_photo_skip", async function (ctx) {
     return;
   }
 
-  await shopFinishNewProduct(ctx, data, uid, step, "");
+  await shopFinishNewProduct(ctx, data, uid, step, []);
+});
+
+bot.action("shop_media_done", async function (ctx) {
+  await ctx.answerCbQuery();
+  if (!(await shopAdminOnly(ctx))) return;
+
+  const data = await shopLoad();
+  const uid = String(ctx.from.id);
+  const step = data.steps[uid];
+
+  if (!step || !["admin_product_photo", "admin_edit_product_photo"].includes(step.step)) {
+    await ctx.reply("Нет активного добавления или редактирования медиа.");
+    return;
+  }
+
+  const media = Array.isArray(step.media) ? step.media.slice(0, 10) : [];
+  if (step.step === "admin_product_photo") {
+    await shopFinishNewProduct(ctx, data, uid, step, media);
+    return;
+  }
+
+  const p = shopFindProduct(data, step.productId);
+  if (!p) {
+    delete data.steps[uid];
+    await shopSave(data);
+    await ctx.reply("Товар не найден. Изменение отменено.");
+    return;
+  }
+
+  p.media = media;
+  p.photo = (media.find(function (item) { return item.type === "photo"; }) || {}).file_id || "";
+  delete data.steps[uid];
+  await shopSave(data);
+  await ctx.reply("✅ Медиа товара обновлено. Добавлено: " + media.length + ".", shopKeyboard([
+    [shopButton("📦 К товару", "shop_manage_product_" + p.id)],
+    [shopButton("📦 Все товары", "shop_admin_products")]
+  ]));
 });
 
 bot.action("shop_admin_products", async function (ctx) {
@@ -2817,6 +2699,7 @@ bot.action(/^shop_edit_photo_remove_(.+)$/, async function (ctx) {
     return;
   }
   p.photo = "";
+  p.media = [];
   delete data.steps[String(ctx.from.id)];
   await shopSave(data);
   await ctx.reply("🗑 Фотография удалена.", shopKeyboard([
@@ -2874,33 +2757,6 @@ bot.action(/^shop_take_(.+)$/, async function (ctx) {
   }
 });
 
-bot.action(/^shop_edit_order_total_(.+)$/, async function (ctx) {
-  await ctx.answerCbQuery();
-  if (!(await shopAdminOnly(ctx))) return;
-  const data = await shopLoad();
-  const order = shopFindOrder(data, ctx.match[1]);
-  if (!order) {
-    await ctx.reply("Заказ не найден.");
-    return;
-  }
-  if (order.status !== "in_progress") {
-    await ctx.reply("Сумму можно изменить только у заказа, взятого в работу.");
-    return;
-  }
-  if (order.takenBy && String(order.takenBy) !== String(ctx.from.id)) {
-    await ctx.reply("Этот заказ уже взят в работу другим администратором.");
-    return;
-  }
-  const uid = String(ctx.from.id);
-  data.steps[uid] = { step: "admin_order_total", orderId: String(order.id), startedAt: Date.now() };
-  await shopSave(data);
-  await ctx.reply(
-    "✏️ Изменение суммы заказа №" + order.id + "\nСумма в карточке: " + shopMoney(order.total) + "\nСумма для клиента: " + shopMoney(order.customerTotal != null ? order.customerTotal : order.total) +
-    "\n\nВведите новую итоговую сумму заказа (например, 250 или 250.50). Склад и количество товаров не изменятся. Для отмены отправьте /cancel.",
-    shopKeyboard([[shopButton("❌ Отмена", "shop_cancel_input")]])
-  );
-});
-
 bot.action(/^shop_confirm_(.+)$/, async function (ctx) {
   await ctx.answerCbQuery();
   try {
@@ -2926,35 +2782,6 @@ bot.action(/^shop_no_username_(.+)$/, async function (ctx) {
     "У клиента нет username. Найти его по Telegram ID через эту кнопку нельзя.",
     { show_alert: true }
   );
-});
-
-// ============================================================
-// CASH CALLBACKS
-// ============================================================
-
-bot.action("shop_cash", async function (ctx) {
-  await ctx.answerCbQuery();
-  await shopCashMenu(ctx);
-});
-
-bot.action("shop_cash_history", async function (ctx) {
-  await ctx.answerCbQuery();
-  await shopCashHistory(ctx);
-});
-
-bot.action(/^shop_cash_history_(\d+)$/, async function (ctx) {
-  await ctx.answerCbQuery();
-  await shopCashHistory(ctx, ctx.match[1]);
-});
-
-bot.action(/^shop_cash_account_(\d+)$/, async function (ctx) {
-  await ctx.answerCbQuery();
-  await shopCashAccount(ctx, ctx.match[1]);
-});
-
-bot.action(/^shop_cash_withdraw_(\d+)$/, async function (ctx) {
-  await ctx.answerCbQuery();
-  await shopCashBeginWithdraw(ctx, ctx.match[1]);
 });
 
 // ============================================================
@@ -3093,39 +2920,25 @@ bot.on("message", async function (ctx) {
 
     const step = data.steps[uid];
 
-    if (
-      shopIsAdmin(ctx) &&
-      step &&
-      step.step === "admin_product_photo" &&
-      ctx.message.photo &&
-      ctx.message.photo.length
-    ) {
-      const photo = ctx.message.photo[ctx.message.photo.length - 1].file_id;
-      await shopFinishNewProduct(ctx, data, uid, step, photo);
-      return;
-    }
+    const incomingMedia = ctx.message.photo && ctx.message.photo.length
+      ? { type: "photo", file_id: ctx.message.photo[ctx.message.photo.length - 1].file_id }
+      : (ctx.message.video && ctx.message.video.file_id
+        ? { type: "video", file_id: ctx.message.video.file_id }
+        : null);
 
     if (
       shopIsAdmin(ctx) &&
       step &&
-      step.step === "admin_edit_product_photo" &&
-      ctx.message.photo &&
-      ctx.message.photo.length
+      (step.step === "admin_product_photo" || step.step === "admin_edit_product_photo") &&
+      incomingMedia
     ) {
-      const p = shopFindProduct(data, step.productId);
-      if (!p) {
-        delete data.steps[uid];
-        await shopSave(data);
-        await ctx.reply("Товар не найден. Изменение фотографии отменено.");
+      if (!Array.isArray(step.media)) step.media = [];
+      if (step.media.length >= 10) {
+        await ctx.reply("Можно добавить максимум 10 фото/видео. Нажмите «Готово с медиа».");
         return;
       }
-      p.photo = ctx.message.photo[ctx.message.photo.length - 1].file_id;
-      delete data.steps[uid];
+      step.media.push(incomingMedia);
       await shopSave(data);
-      await ctx.reply("✅ Фотография товара обновлена.", shopKeyboard([
-        [shopButton("📦 К товару", "shop_manage_product_" + p.id)],
-        [shopButton("📦 Все товары", "shop_admin_products")]
-      ]));
       return;
     }
 
@@ -3141,6 +2954,7 @@ bot.on("message", async function (ctx) {
 // ============================================================
 // TELEGRAM COMMAND MENU
 // ============================================================
+
 try {
   bot.telegram.setMyCommands([
     { command: "start", description: "Открыть магазин" },
