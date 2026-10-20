@@ -6717,7 +6717,7 @@ async function mileageAllForPeriod(period) {
   return result;
 }
 
-bot.hears(/^км\\s+отмена$/i, async ctx => {
+bot.hears(/^км\s+отмена$/i, async ctx => {
   try {
     const state = await mileageLoad();
     const id = String(ctx.from.id);
