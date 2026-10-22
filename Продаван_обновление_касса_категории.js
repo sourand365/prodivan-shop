@@ -728,8 +728,9 @@ async function shopShowOrderInfo(ctx, orderId) {
 
 function shopCashAdminLabel(adminId) {
   const id = String(adminId);
-  return id === SHOP_ADMINS[0] ? "Олександр" :
-    id === SHOP_ADMINS[1] ? "Андрей" : "Администратор " + id;
+  // ID 5340322240 — касса Андрея; ID 688000422 — касса Александра.
+  return id === "5340322240" ? "Андрей" :
+    id === "688000422" ? "Александр" : "Администратор " + id;
 }
 
 async function shopCashMenu(ctx) {
@@ -765,7 +766,7 @@ async function shopCashHistory(ctx, adminId) {
   const lines = history.map(function (entry) {
     const date = new Date(entry.at || Date.now()).toLocaleString("uk-UA", { timeZone: "Europe/Kyiv" });
     const sign = Number(entry.amount) >= 0 ? "+" : "−";
-    return "• " + date + "\n  " + (entry.type === "sale" ? "✅ Закрытие заказа №" + entry.orderId : "💸 Снятие денег") + "\n  Касса: " + shopCashAdminLabel(entry.accountId) + "\n  Сумма: " + sign + shopMoney(Math.abs(Number(entry.amount))) + "\n  Выполнил: " + (entry.actorName || entry.actorId || "—");
+    return "• " + date + "\n  " + (entry.type === "sale" ? "✅ Продажа по заказу №" + entry.orderId : "💸 Снятие денег") + "\n  Касса: " + shopCashAdminLabel(entry.accountId) + "\n  Сумма: " + sign + shopMoney(Math.abs(Number(entry.amount))) + "\n  Выполнил: " + (entry.actorName || entry.actorId || "—") + (entry.comment ? "\n  Комментарий: " + entry.comment : "");
   });
   await ctx.reply("📜 ИСТОРИЯ КАССЫ\n\n" + lines.join("\n\n"), shopKeyboard([[shopButton("⬅️ К кассе", "shop_cash")]]));
 }
@@ -778,7 +779,7 @@ async function shopCashBeginWithdraw(ctx, adminId) {
   if (balance <= 0) { await ctx.reply("В этой кассе нет денег для снятия.", shopKeyboard([[shopButton("⬅️ Назад", "shop_cash_account_" + adminId)]])); return; }
   data.steps[String(ctx.from.id)] = { step: "cash_withdraw_amount", accountId: String(adminId) };
   await shopSave(data);
-  await ctx.reply("💸 Снятие с кассы «" + shopCashAdminLabel(adminId) + "».\nДоступно: " + shopMoney(balance) + "\n\nВведите сумму для снятия цифрами (например: 250 или 250.50). Для отмены отправьте /cancel.");
+  await ctx.reply("💸 Снятие с кассы «" + shopCashAdminLabel(adminId) + "».\nДоступно: " + shopMoney(balance) + "\n\nВведите сумму для снятия цифрами (например: 250 или 250.50). После этого бот попросит комментарий к операции. Для отмены отправьте /cancel.");
 }
 
 async function shopCashFinishWithdraw(ctx, data, uid, step, rawAmount) {
@@ -787,11 +788,10 @@ async function shopCashFinishWithdraw(ctx, data, uid, step, rawAmount) {
   const balance = Number(data.cash.balances[accountId] || 0);
   if (!Number.isFinite(amount) || amount <= 0) { await ctx.reply("Введите корректную сумму больше нуля, например 250 или 250.50."); return; }
   if (amount > balance + 0.000001) { await ctx.reply("Недостаточно денег в кассе. Доступно: " + shopMoney(balance) + ". Введите меньшую сумму или /cancel."); return; }
-  data.cash.balances[accountId] = Math.round((balance - amount) * 100) / 100;
-  data.cash.history.push({ id: "cash_" + Date.now() + "_" + uid, type: "withdrawal", accountId: accountId, amount: -amount, actorId: uid, actorName: shopUserName(ctx), at: Date.now() });
-  delete data.steps[uid];
+  step.amount = amount;
+  step.step = "cash_withdraw_comment";
   await shopSave(data);
-  await ctx.reply("✅ Снятие записано в историю.\nКасса: " + shopCashAdminLabel(accountId) + "\nСнято: " + shopMoney(amount) + "\nОстаток: " + shopMoney(data.cash.balances[accountId]), shopKeyboard([[shopButton("💰 Касса", "shop_cash")], [shopButton("📜 История", "shop_cash_history")]]));
+  await ctx.reply("✍️ Введите комментарий к снятию " + shopMoney(amount) + " с кассы «" + shopCashAdminLabel(accountId) + "».\nНапример: «забрал наличные», «оплата поставщику». Комментарий обязателен. Для отмены отправьте /cancel.");
 }
 
 // ============================================================
@@ -988,7 +988,7 @@ async function shopRenderAdminOrder(ctx, order) {
       ]);
     }
 
-    rows.push([shopButton("✏️ Изменить сумму", "shop_edit_order_total_" + order.id)]);
+    rows.push([shopButton("✏️ Изменить сумму к зачислению", "shop_edit_order_total_" + order.id)]);
     rows.push([shopButton("✅ Подтвердить продажу", "shop_confirm_" + order.id)]);
     rows.push([shopButton("❌ Отменить заказ", "shop_cancel_" + order.id)]);
   }
@@ -2223,10 +2223,49 @@ async function shopProcessInput(ctx) {
     return;
   }
 
+  if (step.step === "cash_withdraw_comment") {
+    if (!shopIsAdmin(ctx)) return;
+    const comment = message.trim();
+    if (!comment || comment.length < 2) {
+      await ctx.reply("Введите комментарий минимум из 2 символов или отправьте /cancel.");
+      return;
+    }
+    const accountId = String(step.accountId);
+    const amount = Math.round(Number(step.amount) * 100) / 100;
+    const balance = Number(data.cash.balances[accountId] || 0);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > balance + 0.000001) {
+      delete data.steps[uid];
+      await shopSave(data);
+      await ctx.reply("Не удалось завершить снятие: баланс изменился. Операция отменена.");
+      return;
+    }
+    data.cash.balances[accountId] = Math.round((balance - amount) * 100) / 100;
+    data.cash.history.push({
+      id: "cash_" + Date.now() + "_" + uid,
+      type: "withdrawal",
+      accountId: accountId,
+      amount: -amount,
+      actorId: uid,
+      actorName: shopUserName(ctx),
+      comment: comment,
+      at: Date.now()
+    });
+    delete data.steps[uid];
+    await shopSave(data);
+    await ctx.reply(
+      "✅ Снятие записано в историю.\nКасса: " + shopCashAdminLabel(accountId) +
+      "\nСнято: " + shopMoney(amount) +
+      "\nКомментарий: " + comment +
+      "\nОстаток: " + shopMoney(data.cash.balances[accountId]),
+      shopKeyboard([[shopButton("💰 Касса", "shop_cash")], [shopButton("📜 История", "shop_cash_history")]])
+    );
+    return;
+  }
+
   if (step.step === "admin_order_total") {
     if (!shopIsAdmin(ctx)) return;
     const total = Number(message.replace(",", "."));
-    if (!Number.isFinite(total) || total < 0 || !/^\\d+(?:[.,]\\d{1,2})?$/.test(message)) {
+    if (!Number.isFinite(total) || total < 0 || !/^\d+(?:[.,]\d{1,2})?$/.test(message)) {
       await ctx.reply("Введите сумму числом, например 250 или 250.50. Для отмены отправьте /cancel.");
       return;
     }
@@ -2254,8 +2293,8 @@ async function shopProcessInput(ctx) {
     delete data.steps[uid];
     await shopSave(data);
     await ctx.reply(
-      "✅ Для клиента по заказу №" + order.id + " установлена сумма к оплате: " +
-      shopMoney(order.customerTotal) + ". Карточка заказа и цены товаров не изменены."
+      "✅ Для заказа №" + order.id + " установлена сумма: " +
+      shopMoney(order.customerTotal) + ". Именно эта сумма поступит на кассу администратора, который подтвердит продажу."
     );
     return;
   }
