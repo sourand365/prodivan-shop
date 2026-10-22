@@ -572,19 +572,21 @@ async function shopBeginCheckout(ctx) {
   }
 
   delete data.broadcastMode[userId];
-  data.steps[userId] = { step: "order_name" };
+  data.steps[userId] = { step: "order_phone" };
   await shopSave(data);
 
   await ctx.reply(
-    "📝 Оформление заказа.\n\nВведите имя и фамилию.\n\n" +
-    "Username Telegram будет сохранён автоматически, если он указан в профиле.",
+    "📝 Оформление заказа.\n\n" +
+    "Нужны только два контакта: номер телефона и ваш Telegram username.\n" +
+    "Username сохранится автоматически из профиля Telegram — вводить его не нужно.\n\n" +
+    "Введите номер телефона.",
     shopKeyboard([
       [shopButton("❌ Отменить оформление", "shop_cancel_input")]
     ])
   );
 }
 
-async function shopFinishCheckout(ctx, data, userId, stepData, address) {
+async function shopFinishCheckout(ctx, data, userId, stepData) {
   const cart = data.carts[userId] || [];
 
   if (!cart.length) {
@@ -637,9 +639,9 @@ async function shopFinishCheckout(ctx, data, userId, stepData, address) {
     id: shopId("o", data.counters.order++),
     userId: String(userId),
     username: ctx.from.username || "",
-    customerName: stepData.name || shopUserName(ctx),
+    customerName: "",
     phone: stepData.phone || "",
-    address: address,
+    address: "",
     items: items,
     total: total,
     status: "new",
@@ -2508,39 +2510,16 @@ async function shopProcessInput(ctx) {
     return;
   }
 
-  if (step.step === "order_name") {
-    if (message.length < 2) {
-      await ctx.reply("Введите имя и фамилию.");
-      return;
-    }
-
-    step.name = message;
-    step.step = "order_phone";
-    await shopSave(data);
-    await ctx.reply("Введите номер телефона для связи.");
-    return;
-  }
-
   if (step.step === "order_phone") {
-    if (message.length < 5) {
-      await ctx.reply("Введите корректный номер телефона.");
+    const phoneDigits = message.replace(/\\D/g, "");
+    if (phoneDigits.length < 7 || phoneDigits.length > 15) {
+      await ctx.reply("Введите корректный номер телефона (от 7 до 15 цифр).");
       return;
     }
 
-    step.phone = message;
-    step.step = "order_address";
-    await shopSave(data);
-    await ctx.reply("Введите полный адрес доставки.");
+    step.phone = message.trim();
+    await shopFinishCheckout(ctx, data, uid, step);
     return;
-  }
-
-  if (step.step === "order_address") {
-    if (message.length < 4) {
-      await ctx.reply("Введите полный адрес доставки.");
-      return;
-    }
-
-    await shopFinishCheckout(ctx, data, uid, step, message);
   }
 }
 
