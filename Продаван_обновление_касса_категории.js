@@ -67,6 +67,32 @@ async function shopLoad() {
     if (!Number(d.counters[key])) d.counters[key] = 1;
   });
 
+  // Гарантируем три главных раздела каталога. Не удаляем существующие категории,
+  // товары или подкатегории; если раздела нет, создаём его автоматически.
+  const mainCategoryNames = ["Товары", "Аренда", "Комплектующие"];
+  const mainCategories = [];
+  mainCategoryNames.forEach(function (name) {
+    let category = d.categories.find(function (item) {
+      return String(item.name || "").trim().toLowerCase() === name.toLowerCase();
+    });
+    if (!category) {
+      let id;
+      do {
+        id = shopId("c", d.counters.category++);
+      } while (d.categories.some(function (item) {
+        return String(item.id) === String(id);
+      }));
+      category = { id: id, name: name };
+      d.categories.push(category);
+    }
+    mainCategories.push(category);
+  });
+  d.categories = mainCategories.concat(d.categories.filter(function (item) {
+    return !mainCategories.some(function (main) {
+      return String(main.id) === String(item.id);
+    });
+  }));
+
   // Миграция старых товаров и заказов
   d.products.forEach(function (p) {
     p.stock = Math.max(0, Math.floor(Number(p.stock) || 0));
