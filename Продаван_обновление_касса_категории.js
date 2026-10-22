@@ -91,7 +91,7 @@ async function shopLoad() {
 
   function shopParentForOldCategory(name) {
     const n = String(name || "").toLowerCase();
-    if (/аренд|электро.?скутер|электроскутер|скутер|мопед|мотоцикл/.test(n)) {
+    if (/аренд|електро.?скутер|электро.?скутер|электроскутер|скутер|мопед|мотоцикл/.test(n)) {
       return mainCategories[1];
     }
     if (/комплект|запчаст|держател|креплен|аксессуар|зарядн|аккумулятор/.test(n)) {
