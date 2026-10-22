@@ -369,15 +369,28 @@ async function shopMainMenu(ctx) {
 
 async function shopShowCategories(ctx) {
   const data = await shopLoad();
-  const rows = data.categories.map(function (c) {
-    return [shopButton("📁 " + c.name, "shop_cat_" + c.id)];
+  const mainNames = ["Товары", "Аренда", "Комплектующие"];
+  const mainIcons = {
+    "товары": "🛍",
+    "аренда": "🔑",
+    "комплектующие": "🔧"
+  };
+  const mainCategories = mainNames.map(function (name) {
+    return data.categories.find(function (category) {
+      return String(category.name || "").trim().toLowerCase() === name.toLowerCase();
+    });
+  }).filter(Boolean);
+
+  const rows = mainCategories.map(function (category) {
+    const icon = mainIcons[String(category.name || "").trim().toLowerCase()] || "📁";
+    return [shopButton(icon + " " + category.name, "shop_cat_" + category.id)];
   });
 
   rows.push([shopButton("🛒 Корзина", "shop_cart")]);
   rows.push([shopButton("⬅️ Главное меню", "shop_home")]);
 
   await ctx.reply(
-    data.categories.length ? "🛍 Каталог товаров:" : "Каталог пока пуст.",
+    "🛍 КАТАЛОГ\n\nВыберите главный раздел:",
     shopKeyboard(rows)
   );
 }
