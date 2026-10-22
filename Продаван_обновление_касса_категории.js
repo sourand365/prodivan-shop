@@ -67,9 +67,10 @@ async function shopLoad() {
     if (!Number(d.counters[key])) d.counters[key] = 1;
   });
 
-  // Гарантируем три главных раздела каталога. Не удаляем существующие категории,
-  // товары или подкатегории; если раздела нет, создаём его автоматически.
+  // Каталог имеет ровно три главных раздела. Все остальные старые категории
+  // переносим внутрь подходящего раздела, чтобы товары не потерялись.
   const mainCategoryNames = ["Товары", "Аренда", "Комплектующие"];
+  const oldCategories = d.categories.slice();
   const mainCategories = [];
   mainCategoryNames.forEach(function (name) {
     let category = d.categories.find(function (item) {
@@ -87,11 +88,76 @@ async function shopLoad() {
     }
     mainCategories.push(category);
   });
-  d.categories = mainCategories.concat(d.categories.filter(function (item) {
-    return !mainCategories.some(function (main) {
-      return String(main.id) === String(item.id);
+
+  function shopParentForOldCategory(name) {
+    const n = String(name || "").toLowerCase();
+    if (/аренд|электро.?скутер|электроскутер|скутер|мопед|мотоцикл/.test(n)) {
+      return mainCategories[1];
+    }
+    if (/комплект|запчаст|держател|креплен|аксессуар|зарядн|аккумулятор/.test(n)) {
+      return mainCategories[2];
+    }
+    return mainCategories[0];
+  }
+
+  function shopMakeSubcategory(parent, name) {
+    let existing = d.subcategories.find(function (s) {
+      return String(s.categoryId) === String(parent.id) &&
+        String(s.name || "").trim().toLowerCase() === String(name).trim().toLowerCase();
     });
-  }));
+    if (existing) return existing;
+    let id;
+    do {
+      id = shopId("s", d.counters.subcategory++);
+    } while (d.subcategories.some(function (s) {
+      return String(s.id) === String(id);
+    }));
+    const sub = { id: id, categoryId: String(parent.id), name: String(name) };
+    d.subcategories.push(sub);
+    return sub;
+  }
+
+  if (!d.catalogHierarchyV2) {
+    oldCategories.forEach(function (oldCategory) {
+      const isMain = mainCategories.some(function (main) {
+        return String(main.id) === String(oldCategory.id);
+      });
+      if (isMain) return;
+
+      const parent = shopParentForOldCategory(oldCategory.name);
+      const oldSubs = d.subcategories.filter(function (s) {
+        return String(s.categoryId) === String(oldCategory.id);
+      });
+      const directSub = shopMakeSubcategory(parent, oldCategory.name || "Другая категория");
+
+      d.products.forEach(function (p) {
+        if (String(p.categoryId) === String(oldCategory.id) && !p.subcategoryId) {
+          p.categoryId = String(parent.id);
+          p.subcategoryId = String(directSub.id);
+        }
+      });
+
+      oldSubs.forEach(function (oldSub) {
+        const migratedSub = shopMakeSubcategory(parent,
+          String(oldCategory.name || "Категория") + " — " + String(oldSub.name || "Подкатегория"));
+        d.products.forEach(function (p) {
+          if (String(p.subcategoryId) === String(oldSub.id)) {
+            p.categoryId = String(parent.id);
+            p.subcategoryId = String(migratedSub.id);
+          }
+        });
+      });
+
+      d.subcategories = d.subcategories.filter(function (s) {
+        return String(s.categoryId) !== String(oldCategory.id);
+      });
+    });
+    d.categories = mainCategories;
+    d.catalogHierarchyV2 = true;
+    await collection.updateOne({ key: "main" }, { $set: { data: d } }, { upsert: true });
+  } else {
+    d.categories = mainCategories;
+  }
 
   // Миграция старых товаров и заказов
   d.products.forEach(function (p) {
@@ -1056,14 +1122,14 @@ async function shopAdminCategories(ctx) {
   if (!(await shopAdminOnly(ctx))) return;
 
   const data = await shopLoad();
-  const rows = [[shopButton("➕ Добавить категорию", "shop_admin_addcategory")]];
+  const rows = [];
 
   data.categories.forEach(function (c) {
     rows.push([shopButton("📁 " + c.name, "shop_admin_category_" + c.id)]);
   });
 
   rows.push([shopButton("⬅️ Админ-панель", "shop_admin")]);
-  await ctx.reply("📁 УПРАВЛЕНИЕ КАТЕГОРИЯМИ", shopKeyboard(rows));
+  await ctx.reply("📁 ГЛАВНЫЕ РАЗДЕЛЫ\n\nВсего три раздела. Новые категории создаются внутри выбранного раздела.", shopKeyboard(rows));
 }
 
 async function shopAdminSubcategories(ctx) {
@@ -1079,7 +1145,7 @@ async function shopAdminSubcategories(ctx) {
   });
 
   rows.push([shopButton("⬅️ Админ-панель", "shop_admin")]);
-  await ctx.reply("📂 ПОДКАТЕГОРИИ\n\nСначала выберите категорию:", shopKeyboard(rows));
+  await ctx.reply("📂 СОЗДАТЬ КАТЕГОРИЮ\n\nВыберите один из трёх главных разделов, внутри которого создать категорию:", shopKeyboard(rows));
 }
 
 async function shopAdminShowSubcategories(ctx, categoryId) {
@@ -1159,12 +1225,11 @@ async function shopAdminCategoryInfo(ctx, categoryId) {
   await ctx.reply(
     "📁 " + category.name + "\n\n" +
     "ID: " + category.id + "\n" +
-    "Подкатегорий: " + subs.length + "\n" +
+    "Категорий внутри: " + subs.length + "\n" +
     "Товаров: " + products.length,
     shopKeyboard([
-      [shopButton("➕ Подкатегория", "shop_admin_addsubcategory_to_" + category.id)],
-      [shopButton("🗑 Удалить категорию", "shop_delete_cat_" + category.id)],
-      [shopButton("⬅️ Категории", "shop_admin_categories")]
+      [shopButton("➕ Добавить категорию внутрь", "shop_admin_addsubcategory_to_" + category.id)],
+      [shopButton("⬅️ Главные разделы", "shop_admin_categories")]
     ])
   );
 }
@@ -1322,13 +1387,7 @@ async function shopDeleteSubcategory(ctx, subId) {
 
 async function shopBeginAddCategory(ctx) {
   if (!(await shopAdminOnly(ctx))) return;
-
-  const data = await shopLoad();
-  data.steps[String(ctx.from.id)] = { step: "admin_category_name" };
-  await shopSave(data);
-
-  await ctx.reply("Введите название категории:",
-    shopKeyboard([[shopButton("❌ Отмена", "shop_cancel_input")]]));
+  await shopChooseSubcategoryCategory(ctx);
 }
 
 async function shopBeginAddSubcategory(ctx, categoryId) {
@@ -2373,7 +2432,7 @@ async function shopProcessInput(ctx) {
     delete data.steps[uid];
     await shopSave(data);
 
-    await ctx.reply("✅ Подкатегория создана: " + message,
+    await ctx.reply("✅ Категория создана внутри «" + category.name + "»: " + message,
       shopKeyboard([
         [shopButton("➕ Ещё подкатегория", "shop_admin_addsubcategory")],
         [shopButton("⬅️ Админ-панель", "shop_admin")]
