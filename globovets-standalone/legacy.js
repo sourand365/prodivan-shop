@@ -2668,10 +2668,11 @@ bot.hears(
 
       if (
         !Number.isFinite(amount) ||
+        !Number.isInteger(amount) ||
         amount <= 0
       ) {
         await ctx.reply(
-          "Неверная сумма ❌"
+          "Сумма чаевых должна быть целым числом больше 0 ❌"
         );
 
         return;
