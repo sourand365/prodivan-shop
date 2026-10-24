@@ -3753,6 +3753,57 @@ async function getOdesaWeatherText(slot, targetDate) {
   return body;
 }
 
+async function getOdesaNextThreeHoursWeatherText() {
+  if (typeof fetch !== "function") {
+    throw new Error("В среде бота недоступен fetch для погодного API");
+  }
+  const url = "https://api.open-meteo.com/v1/forecast" +
+    "?latitude=" + COURIER_WEATHER_LAT +
+    "&longitude=" + COURIER_WEATHER_LON +
+    "&hourly=temperature_2m,precipitation_probability,wind_speed_10m" +
+    "&timezone=Europe%2FKyiv&forecast_days=3";
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("Open-Meteo HTTP " + response.status);
+  const data = await response.json();
+  if (!data.hourly || !Array.isArray(data.hourly.time)) {
+    throw new Error("Пустой ответ Open-Meteo");
+  }
+
+  // Берём текущий час и два следующих почасовых прогноза.
+  const now = weatherKyivParts();
+  const startTime = now.year + "-" + now.month + "-" + now.day + "T" + now.hour + ":00";
+  const rows = data.hourly.time.map((time, i) => ({
+    time,
+    temperature_2m: data.hourly.temperature_2m?.[i],
+    precipitation_probability: data.hourly.precipitation_probability?.[i],
+    wind_speed_10m: data.hourly.wind_speed_10m?.[i]
+  })).filter(row => row.time >= startTime).slice(0, 3);
+
+  if (!rows.length) throw new Error("Нет почасового прогноза на ближайшие часы");
+
+  const lines = rows.map(row => {
+    const temp = Number.isFinite(Number(row.temperature_2m)) ? Math.round(Number(row.temperature_2m)) + "°C" : "—";
+    const rain = Number.isFinite(Number(row.precipitation_probability)) ? Math.round(Number(row.precipitation_probability)) + "%" : "—";
+    const wind = Number.isFinite(Number(row.wind_speed_10m)) ? Math.round(Number(row.wind_speed_10m)) + " км/ч" : "—";
+    return weatherTimeLabel(row.time) + " — " + temp + " | дождь " + rain + " | ветер " + wind;
+  });
+
+  let body = "🌦️ <b>Прогноз на ближайшие 3 часа · Одесса</b>\n\n" + lines.join("\n");
+  const advice = weatherRecommendation(rows);
+  if (advice) body += "\n\n<b>Курьеру:</b>\n" + advice;
+  return body;
+}
+
+bot.hears(/^прогноз$/i, async ctx => {
+  try {
+    const message = await getOdesaNextThreeHoursWeatherText();
+    await ctx.reply(message, { parse_mode: "HTML" });
+  } catch (error) {
+    console.error("MANUAL WEATHER FORECAST ERROR:", error.message || error);
+    await ctx.reply("❌ Не удалось получить прогноз погоды. Попробуй немного позже.");
+  }
+});
+
 async function checkCourierWeatherSchedule() {
   try {
     const p = weatherKyivParts();
