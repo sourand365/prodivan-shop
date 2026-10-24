@@ -2145,6 +2145,80 @@ async function showTips(ctx) {
 
 
 // ============================================================
+// ИСТОРИЧЕСКИЕ ЧАЕВЫЕ И ПАКЕТНЫЙ ВВОД
+// Формат: чай 20.10.2026 100
+// Несколько строк можно отправить одним сообщением.
+// ============================================================
+
+bot.hears(
+  /^чай\s+\d{2}[./]\d{2}[./]\d{4}\s+\d+(?:[.,]\d+)?(?:\r?\nчай\s+\d{2}[./]\d{2}[./]\d{4}\s+\d+(?:[.,]\d+)?)*$/i,
+  async ctx => {
+    try {
+      const lines = String(ctx.message.text || "").split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+      const parsed = [];
+      const errors = [];
+      for (let i = 0; i < lines.length; i++) {
+        const m = lines[i].match(/^чай\s+(\d{2}[./]\d{2}[./]\d{4})\s+(\d+(?:[.,]\d+)?)$/i);
+        if (!m) { errors.push("Строка " + (i + 1) + ": неверный формат"); continue; }
+        const amount = Number(m[2].replace(",", "."));
+        if (!Number.isInteger(amount) || amount <= 0 || amount > 100000) {
+          errors.push("Строка " + (i + 1) + ": сумма должна быть целым числом от 1 до 100000");
+          continue;
+        }
+        const date = finalEarningsParseDate(m[1]);
+        if (!date) { errors.push("Строка " + (i + 1) + ": неверная дата"); continue; }
+        parsed.push({ dateKey: getTipsDateKeyFromInput(m[1]), amount, shownDate: m[1] });
+      }
+      if (!parsed.length) {
+        await ctx.reply("❌ Формат: чай 20.10.2026 100\nМожно несколько строк за разные дни.");
+        return;
+      }
+      const state = await loadTipsState();
+      await ensureTipsDay(state);
+      const userId = String(ctx.from.id);
+      const name = getTelegramDisplayName(ctx);
+      for (const row of parsed) {
+        if (row.dateKey === state.currentDate) {
+          if (!state.today[userId]) state.today[userId] = { name, amount: 0 };
+          state.today[userId].name = name;
+          state.today[userId].amount = (Number(state.today[userId].amount) || 0) + row.amount;
+        } else {
+          let day = (state.archive || []).find(d => d && d.date === row.dateKey);
+          if (!day) {
+            day = { date: row.dateKey, tips: {} };
+            state.archive = state.archive || [];
+            state.archive.push(day);
+          }
+          day.tips = day.tips || {};
+          if (!day.tips[userId]) day.tips[userId] = { name, amount: 0 };
+          day.tips[userId].name = name;
+          day.tips[userId].amount = (Number(day.tips[userId].amount) || 0) + row.amount;
+          rebuildWeeklyArchiveEntry(state, getTipsWeekKeyFromDateKey(row.dateKey));
+        }
+      }
+      state.archive.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+      await saveTipsState(state);
+      await ctx.reply("✅ Чаевые добавлены за " + parsed.length + " день(дней):\n" +
+        parsed.map(x => x.shownDate + " — +" + x.amount + " грн").join("\n") +
+        (errors.length ? "\n\n⚠️ Пропущено:\n" + errors.join("\n") : ""));
+    } catch (error) {
+      console.error("HISTORICAL TIPS ERROR:", error);
+      await ctx.reply("❌ Ошибка записи исторических чаевых.");
+    }
+  }
+);
+
+function getTipsDateKeyFromInput(input) {
+  const parsed = finalEarningsParseDate(input);
+  if (!parsed) return null;
+  return [
+    parsed.getFullYear(),
+    String(parsed.getMonth() + 1).padStart(2, "0"),
+    String(parsed.getDate()).padStart(2, "0")
+  ].join("-");
+}
+
+// ============================================================
 // ЧАЙ +50
 // ============================================================
 
@@ -6278,6 +6352,50 @@ async function finalEarningsAdd(
   }
 }
 
+
+// ============================================================
+// ИСТОРИЧЕСКИЕ ЗАПИСИ И ПАКЕТНЫЙ ВВОД
+// Формат каждой строки: Г 20.10.2026 100
+// Можно прислать несколько строк одним сообщением.
+// ============================================================
+
+bot.hears(
+  /^(?:(?:гл|г|болт|б|п\+|а|т|л|к)\s+\d{2}[./]\d{2}[./]\d{4}\s+\d+(?:[.,]\d+)?(?:\r?\n|$))+$/i,
+  async ctx => {
+    const lines = String(ctx.message.text || "").split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    const parsed = [];
+    const errors = [];
+    for (let i = 0; i < lines.length; i++) {
+      const m = lines[i].match(/^(гл|г|болт|б|п\+|а|т|л|к)\s+(\d{2}[./]\d{2}[./]\d{4})\s+(\d+(?:[.,]\d+)?)$/i);
+      if (!m) { errors.push("Строка " + (i + 1) + ": неверный формат"); continue; }
+      const typeWord = m[1].toLowerCase();
+      const amount = finalEarningsAmount(m[3]);
+      if (!Number.isInteger(amount) || amount <= 0) {
+        errors.push("Строка " + (i + 1) + ": сумма должна быть целым числом больше 0");
+        continue;
+      }
+      const type = /^(гл|г)$/.test(typeWord) ? "glovo"
+        : /^(болт|б)$/.test(typeWord) ? "bolt"
+        : /^(п\+|а)$/.test(typeWord) ? "ipost"
+        : typeWord === "т" ? "bolttr"
+        : typeWord === "л" ? "personal" : "quests";
+      const date = finalEarningsParseDate(m[2]);
+      if (!date) { errors.push("Строка " + (i + 1) + ": неверная дата"); continue; }
+      parsed.push({ type, amount, date: m[2] });
+    }
+    if (!parsed.length) {
+      await ctx.reply("❌ Не нашёл корректных строк. Пример:\nГ 20.10.2026 100\nГ 21.10.2026 200");
+      return;
+    }
+    let added = 0;
+    for (const row of parsed) {
+      await finalEarningsAdd(ctx, row.type, row.amount, row.date);
+      added++;
+    }
+    if (errors.length) await ctx.reply("⚠️ Пропущенные строки:\n" + errors.join("\n"));
+    if (added > 1) await ctx.reply("✅ Обработано исторических записей: " + added + ". Проверь ответы выше и отчёты по датам.");
+  }
+);
 
 // ============================================================
 // ОСНОВНЫЕ КОМАНДЫ
