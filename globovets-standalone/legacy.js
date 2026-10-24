@@ -2212,9 +2212,9 @@ function getTipsDateKeyFromInput(input) {
   const parsed = finalEarningsParseDate(input);
   if (!parsed) return null;
   return [
-    parsed.getFullYear(),
-    String(parsed.getMonth() + 1).padStart(2, "0"),
-    String(parsed.getDate()).padStart(2, "0")
+    parsed.getUTCFullYear(),
+    String(parsed.getUTCMonth() + 1).padStart(2, "0"),
+    String(parsed.getUTCDate()).padStart(2, "0")
   ].join("-");
 }
 
@@ -6369,7 +6369,7 @@ bot.hears(
       const m = lines[i].match(/^(гл|г|болт|б|п\+|а|т|л|к)\s+(\d{2}[./]\d{2}[./]\d{4})\s+(\d+(?:[.,]\d+)?)$/i);
       if (!m) { errors.push("Строка " + (i + 1) + ": неверный формат"); continue; }
       const typeWord = m[1].toLowerCase();
-      const amount = finalEarningsAmount(m[3]);
+      const amount = Number(m[3].replace(",", "."));
       if (!Number.isInteger(amount) || amount <= 0) {
         errors.push("Строка " + (i + 1) + ": сумма должна быть целым числом больше 0");
         continue;
