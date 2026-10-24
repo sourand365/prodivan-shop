@@ -153,7 +153,7 @@ function makeBackup() {
     const target = path.join(BACKUP_DIR, "globovets-" + stamp + ".sqlite");
     fs.copyFileSync(DB_PATH, target);
     const backups = fs.readdirSync(BACKUP_DIR)
-      .filter(name => /^globovets-.*\\.sqlite$/.test(name))
+      .filter(name => /^globovets-.*\.sqlite$/.test(name))
       .map(name => ({ name, time: fs.statSync(path.join(BACKUP_DIR, name)).mtimeMs }))
       .sort((a, b) => b.time - a.time);
     for (const old of backups.slice(7)) fs.rmSync(path.join(BACKUP_DIR, old.name), { force: true });
@@ -167,7 +167,7 @@ async function start() {
   const legacyPath = path.join(__dirname, "legacy.js");
   if (!fs.existsSync(legacyPath)) throw new Error("Не найден legacy.js.");
   const legacySource = fs.readFileSync(legacyPath, "utf8");
-  new Function("bot", "db", legacySource + "\\n//# sourceURL=globovets-legacy.js")(bot, db);
+  new Function("bot", "db", legacySource)(bot, db);
 
   await bot.launch();
   console.log("Глобовец запущен. База:", DB_PATH);
@@ -177,7 +177,7 @@ async function start() {
 }
 
 process.once("SIGINT", () => {
-  console.log("\\nОстановка Глобовца...");
+  console.log("Остановка Глобовца...");
   bot.stop("SIGINT");
   try { makeBackup(); } finally { sqlite.close(); process.exit(0); }
 });
