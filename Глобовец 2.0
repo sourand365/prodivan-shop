@@ -1498,6 +1498,11 @@ bot.hears(
         String(ctx.match[1]).replace(",", ".")
       );
 
+      if (!Number.isFinite(amount) || !Number.isInteger(amount) || amount <= 0) {
+        await ctx.reply("Сумма чаевых должна быть целым числом больше 0 грн. ❌");
+        return;
+      }
+
       const state = await loadTipsState();
 
       await ensureTipsDay(state);
@@ -2155,10 +2160,11 @@ bot.hears(
 
       if (
         !Number.isFinite(amount) ||
+        !Number.isInteger(amount) ||
         amount <= 0
       ) {
         await ctx.reply(
-          "Неверная сумма ❌"
+          "Сумма должна быть целым числом больше 0 ❌"
         );
 
         return;
@@ -3569,6 +3575,148 @@ setInterval(
 // Проверяем сразу после запуска,
 // чтобы не ждать первую минуту.
 checkSupportSchedule();
+
+
+
+// ============================================================
+// 🌦️ АВТОПОГОДА ДЛЯ КУРЬЕРОВ — ОДЕССА
+// 23:50 завтра; 06:50 прогноз на сегодня; 07:00 / 12:00 / 17:00 интервалы.
+// ============================================================
+
+const COURIER_WEATHER_LAT = 46.4825;
+const COURIER_WEATHER_LON = 30.7233;
+const WEATHER_SCHEDULE = {
+  "23:50": { kind: "tomorrow", label: "Прогноз на завтра" },
+  "06:50": { kind: "today", label: "Прогноз на сегодня" },
+  "07:00": { kind: "range", start: 7, end: 12, label: "Погода 07:00–12:00" },
+  "12:00": { kind: "range", start: 12, end: 17, label: "Погода 12:00–17:00" },
+  "17:00": { kind: "range", start: 17, end: 24, label: "Погода 17:00–00:00" }
+};
+
+function weatherKyivParts(date = new Date()) {
+  const out = {};
+  for (const part of new Intl.DateTimeFormat("en-GB", {
+    timeZone: TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false
+  }).formatToParts(date)) {
+    if (part.type !== "literal") out[part.type] = part.value;
+  }
+  return out;
+}
+
+function weatherDateKey(offsetDays = 0) {
+  const p = weatherKyivParts();
+  const d = new Date(Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day) + offsetDays));
+  return d.toISOString().slice(0, 10);
+}
+
+function weatherTimeLabel(iso) {
+  return String(iso || "").slice(11, 16);
+}
+
+function weatherRecommendation(rows) {
+  const maxRain = Math.max(0, ...rows.map(x => Number(x.precipitation_probability) || 0));
+  const maxWind = Math.max(0, ...rows.map(x => Number(x.wind_speed_10m) || 0));
+  const minTemp = Math.min(...rows.map(x => Number(x.temperature_2m)).filter(Number.isFinite));
+  const maxTemp = Math.max(...rows.map(x => Number(x.temperature_2m)).filter(Number.isFinite));
+  const notes = [];
+  if (maxRain >= 60) notes.push("🌧️ Высокий риск дождя — возьми дождевик и защити телефон/зарядку.");
+  else if (maxRain >= 30) notes.push("🌦️ Возможен дождь — дождевик лучше взять с собой.");
+  else notes.push("☂️ Существенный дождь маловероятен по текущему прогнозу.");
+  if (maxWind >= 35) notes.push("💨 Сильный ветер — осторожнее на открытых участках и мостах.");
+  if (Number.isFinite(minTemp) && minTemp <= 8) notes.push("🧤 Прохладно — тёплый слой и перчатки пригодятся.");
+  else if (Number.isFinite(maxTemp) && maxTemp >= 27) notes.push("🥤 Тепло — возьми воду и делай короткие паузы.");
+  return notes.join("\n");
+}
+
+async function getOdesaWeatherText(slot, targetDate) {
+  if (typeof fetch !== "function") {
+    throw new Error("В среде бота недоступен fetch для погодного API");
+  }
+  const url = "https://api.open-meteo.com/v1/forecast" +
+    "?latitude=" + COURIER_WEATHER_LAT +
+    "&longitude=" + COURIER_WEATHER_LON +
+    "&hourly=temperature_2m,precipitation_probability,wind_speed_10m" +
+    "&timezone=Europe%2FKyiv&forecast_days=3";
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("Open-Meteo HTTP " + response.status);
+  const data = await response.json();
+  if (!data.hourly || !Array.isArray(data.hourly.time)) throw new Error("Пустой ответ Open-Meteo");
+
+  let rows = data.hourly.time.map((time, i) => ({
+    time,
+    temperature_2m: data.hourly.temperature_2m?.[i],
+    precipitation_probability: data.hourly.precipitation_probability?.[i],
+    wind_speed_10m: data.hourly.wind_speed_10m?.[i]
+  })).filter(row => row.time.startsWith(targetDate));
+
+  if (slot.kind === "range") {
+    rows = rows.filter(row => {
+      const hour = Number(row.time.slice(11, 13));
+      return hour >= slot.start && hour < slot.end;
+    });
+  }
+  if (slot.kind === "today" || slot.kind === "tomorrow") {
+    rows = rows.filter(row => {
+      const hour = Number(row.time.slice(11, 13));
+      return hour >= 0 && hour < 24;
+    });
+  }
+  if (!rows.length) throw new Error("Нет почасового прогноза на " + targetDate);
+
+  const lines = rows.map(row => {
+    const temp = Number.isFinite(Number(row.temperature_2m)) ? Math.round(Number(row.temperature_2m)) + "°C" : "—";
+    const rain = Number.isFinite(Number(row.precipitation_probability)) ? Math.round(Number(row.precipitation_probability)) + "%" : "—";
+    const wind = Number.isFinite(Number(row.wind_speed_10m)) ? Math.round(Number(row.wind_speed_10m)) + " км/ч" : "—";
+    return weatherTimeLabel(row.time) + " — " + temp + " | дождь " + rain + " | ветер " + wind;
+  });
+  const displayDate = targetDate.split("-").reverse().join(".");
+  const title = slot.label + " · Одесса · " + displayDate;
+  let body = "🌦️ <b>" + title + "</b>\n\n" + lines.join("\n");
+  const advice = weatherRecommendation(rows);
+  if (advice) body += "\n\n<b>Курьеру:</b>\n" + advice;
+  return body;
+}
+
+async function checkCourierWeatherSchedule() {
+  try {
+    const p = weatherKyivParts();
+    const hhmm = p.hour + ":" + p.minute;
+    const slot = WEATHER_SCHEDULE[hhmm];
+    if (!slot) return;
+    const slotKey = p.year + "-" + p.month + "-" + p.day + "-" + hhmm;
+    const existing = await db.collection(SUPPORT_COLLECTION).findOne({ key: SUPPORT_KEY });
+    if (existing && existing.weatherLastSentSlot === slotKey) return;
+    const chats = await getSupportChats();
+    if (!chats.length) {
+      console.log("WEATHER: пока нет зарегистрированных чатов для рассылки.");
+      return;
+    }
+    const targetDate = slot.kind === "tomorrow" ? weatherDateKey(1) :
+      slot.kind === "today" ? weatherDateKey(0) : weatherDateKey(0);
+    const message = await getOdesaWeatherText(slot, targetDate);
+    let sent = 0;
+    for (const chatId of chats) {
+      try {
+        await bot.telegram.sendMessage(chatId, message, { parse_mode: "HTML" });
+        sent++;
+      } catch (error) {
+        console.error("WEATHER SEND ERROR " + chatId + ":", error.message || error);
+      }
+    }
+    await db.collection(SUPPORT_COLLECTION).updateOne(
+      { key: SUPPORT_KEY },
+      { $set: { key: SUPPORT_KEY, weatherLastSentSlot: slotKey, weatherUpdatedAt: Date.now() } },
+      { upsert: true }
+    );
+    console.log("🌦️ WEATHER: отправлено " + sent + "/" + chats.length + " для слота " + hhmm);
+  } catch (error) {
+    console.error("WEATHER SCHEDULE ERROR:", error.message || error);
+  }
+}
+
+setInterval(checkCourierWeatherSchedule, 60 * 1000);
+checkCourierWeatherSchedule();
 
 
 // ============================================================
@@ -5970,16 +6118,13 @@ function finalEarningsAmount(
     );
 
   if (
-    !Number.isFinite(
-      number
-    )
+    !Number.isFinite(number) ||
+    !Number.isInteger(number)
   ) {
     return NaN;
   }
 
-  return finalEarningsRound(
-    number
-  );
+  return number;
 }
 
 
@@ -6002,7 +6147,7 @@ async function finalEarningsAdd(
     ) {
 
       await ctx.reply(
-        "❌ Сумма должна быть больше 0 грн."
+        "❌ Сумма должна быть целым числом больше 0 грн."
       );
 
       return;
@@ -6198,7 +6343,7 @@ async function finalEarningsAddExtra(
     ) {
 
       await ctx.reply(
-        "❌ Сумма должна быть больше 0 грн."
+        "❌ Сумма должна быть целым числом больше 0 грн."
       );
 
       return;
@@ -6644,8 +6789,18 @@ async function mileageSave(state) {
   );
 }
 
-function mileageDateKey(date = getNowKyiv()) {
-  return getDateKey(date);
+function mileageDateKey() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date());
+  const values = {};
+  for (const part of parts) {
+    if (part.type !== "literal") values[part.type] = part.value;
+  }
+  return `${values.year}-${values.month}-${values.day}`;
 }
 
 function mileageRound(value) {
@@ -6717,11 +6872,13 @@ async function mileageAllForPeriod(period) {
   return result;
 }
 
+const mileageCancelPending = new Map();
+
 bot.hears(/^км\s+отмена$/i, async ctx => {
   try {
-    const state = await mileageLoad();
     const id = String(ctx.from.id);
     const today = mileageDateKey();
+    const state = await mileageLoad();
     const user = state.users[id];
     const day = user && user.days && user.days[today];
     if (!day || !Array.isArray(day.readings) || day.readings.length === 0) {
@@ -6740,32 +6897,97 @@ bot.hears(/^км\s+отмена$/i, async ctx => {
         baselineCount = 1;
       }
     }
-
     if (readings.length <= baselineCount) {
-      await ctx.reply("ℹ️ Сегодня ещё нет внесённых показаний для отмены. Последнее показание прошлого дня сохранено как начальная точка.");
+      await ctx.reply("ℹ️ Сегодня ещё нет введённых показаний для отмены. Начальное показание с прошлого дня не удаляется.");
       return;
     }
 
-    const removed = readings.pop();
-    if (readings.length === 0) {
-      delete user.days[today];
-    } else {
-      day.readings = readings;
-      day.updatedAt = Date.now();
-    }
-    await mileageSave(state);
-    const distance = mileageDistance(readings);
+    const token = `${id}:${today}:${Date.now()}`;
+    mileageCancelPending.set(token, {
+      userId: id,
+      dateKey: today,
+      lastReading: Number(readings[readings.length - 1]),
+      readingCount: readings.length
+    });
     await ctx.reply(
-      "↩️ Последнее показание отменено: " + mileageFormat(removed) + " км" +
-      "\\nОсталось показаний за сегодня: " + readings.length +
-      "\\nПробег за день после отмены: " + mileageFormat(distance) + " км"
+      "⚠️ Отменить последнее показание одометра " +
+      mileageFormat(readings[readings.length - 1]) + " км за " + today + "?",
+      {
+        reply_markup: {
+          inline_keyboard: [[
+            { text: "✅ Да, отменить", callback_data: "kmcancel_yes:" + token },
+            { text: "❌ Нет", callback_data: "kmcancel_no:" + token }
+          ]]
+        }
+      }
     );
   } catch (error) {
-    console.error("MILEAGE CANCEL ERROR:", error);
-    await ctx.reply("❌ Не удалось отменить последнее показание.");
+    console.error("MILEAGE CANCEL PREPARE ERROR:", error);
+    await ctx.reply("❌ Не удалось подготовить отмену показания.");
   }
 });
 
+bot.action(/^kmcancel_(yes|no):(.+)$/i, async ctx => {
+  try {
+    const action = ctx.match[1].toLowerCase();
+    const token = ctx.match[2];
+    const pending = mileageCancelPending.get(token);
+    if (!pending || String(ctx.from.id) !== pending.userId) {
+      await ctx.answerCbQuery("Запрос отмены устарел. Отправь «км отмена» заново.", { show_alert: true });
+      return;
+    }
+    mileageCancelPending.delete(token);
+    await ctx.answerCbQuery();
+
+    if (action === "no") {
+      try { await ctx.editMessageText("Отмена показания не выполнена."); } catch {}
+      return;
+    }
+
+    const state = await mileageLoad();
+    const user = state.users[pending.userId];
+    const day = user && user.days && user.days[pending.dateKey];
+    if (!day || !Array.isArray(day.readings) ||
+        day.readings.length !== pending.readingCount ||
+        Number(day.readings[day.readings.length - 1]) !== pending.lastReading ||
+        mileageDateKey() !== pending.dateKey) {
+      try { await ctx.editMessageText("⚠️ Показания изменились или наступил новый день. Ничего не удалено — отправь «км отмена» заново."); } catch {}
+      return;
+    }
+
+    let baselineCount = 0;
+    const priorDates = Object.keys(user.days).filter(k => k < pending.dateKey).sort();
+    if (priorDates.length) {
+      const priorDay = user.days[priorDates[priorDates.length - 1]];
+      const priorReadings = priorDay && priorDay.readings;
+      if (Array.isArray(priorReadings) && priorReadings.length &&
+          Number(day.readings[0]) === Number(priorReadings[priorReadings.length - 1])) {
+        baselineCount = 1;
+      }
+    }
+    if (day.readings.length <= baselineCount) {
+      try { await ctx.editMessageText("Начальное показание прошлого дня защищено и не удаляется."); } catch {}
+      return;
+    }
+
+    const removed = day.readings.pop();
+    if (day.readings.length === 0) {
+      delete user.days[pending.dateKey];
+    } else {
+      day.updatedAt = Date.now();
+    }
+    await mileageSave(state);
+    const distance = mileageDistance(day.readings || []);
+    const resultText =
+      "↩️ Показание отменено: " + mileageFormat(removed) + " км\n" +
+      "Осталось показаний: " + ((day.readings || []).length - baselineCount) + "\n" +
+      "Пробег за день после отмены: " + mileageFormat(distance) + " км";
+    try { await ctx.editMessageText(resultText); } catch { await ctx.reply(resultText); }
+  } catch (error) {
+    console.error("MILEAGE CANCEL CONFIRM ERROR:", error);
+    try { await ctx.answerCbQuery("Не удалось отменить показание.", { show_alert: true }); } catch {}
+  }
+});
 
 bot.hears(/^км(?:\s+(\d+(?:[.,]\d+)?))?$/i, async ctx => {
   try {
@@ -6807,8 +7029,18 @@ bot.hears(/^км(?:\s+(\d+(?:[.,]\d+)?))?$/i, async ctx => {
     day.updatedAt = Date.now();
     await mileageSave(state);
     const distance = mileageDistance(readings);
+    const priorDatesForDisplay = Object.keys(user.days).filter(k => k < today).sort();
+    let hasBaseline = false;
+    if (priorDatesForDisplay.length) {
+      const previousDay = user.days[priorDatesForDisplay[priorDatesForDisplay.length - 1]];
+      const previousReadings = previousDay && previousDay.readings;
+      hasBaseline = Array.isArray(previousReadings) && previousReadings.length > 0 &&
+        readings.length > 0 &&
+        Number(readings[0]) === Number(previousReadings[previousReadings.length - 1]);
+    }
+    const enteredCount = readings.length - (hasBaseline ? 1 : 0);
     let answer = "🏍 Показание одометра записано: " + mileageFormat(odometer) + " км\n";
-    if (readings.length >= 3) {
+    if (enteredCount >= 3) {
       answer += "\n";
       for (let i = 1; i < readings.length; i++) {
         answer += "Акум " + i + " — " + mileageFormat(Math.max(0, Number(readings[i]) - Number(readings[i - 1]))) + " км\n";
