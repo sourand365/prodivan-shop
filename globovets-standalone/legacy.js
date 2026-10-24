@@ -6389,7 +6389,11 @@ bot.hears(
     }
     let added = 0;
     for (const row of parsed) {
-      await finalEarningsAdd(ctx, row.type, row.amount, row.date);
+      if (row.type === "personal" || row.type === "quests") {
+        await finalEarningsAddExtra(ctx, row.type, row.amount, row.date);
+      } else {
+        await finalEarningsAdd(ctx, row.type, row.amount, row.date);
+      }
       added++;
     }
     if (errors.length) await ctx.reply("⚠️ Пропущенные строки:\n" + errors.join("\n"));
