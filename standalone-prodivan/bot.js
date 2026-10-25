@@ -17,7 +17,7 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 const db = new Database(path.join(DATA_DIR, "prodivan.sqlite"));
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
-db.exec(\`
+db.exec(`
 CREATE TABLE IF NOT EXISTS users(user_id TEXT PRIMARY KEY, username TEXT DEFAULT '', first_name TEXT DEFAULT '');
 CREATE TABLE IF NOT EXISTS root_groups(id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL);
 CREATE TABLE IF NOT EXISTS categories(id INTEGER PRIMARY KEY AUTOINCREMENT, root_id INTEGER NOT NULL, name TEXT NOT NULL, UNIQUE(root_id,name), FOREIGN KEY(root_id) REFERENCES root_groups(id));
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS order_items(id INTEGER PRIMARY KEY AUTOINCREMENT, ord
 CREATE TABLE IF NOT EXISTS cash_accounts(admin_id TEXT PRIMARY KEY, admin_name TEXT NOT NULL, balance REAL NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS cash_movements(id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT NOT NULL, actor_id TEXT NOT NULL, type TEXT NOT NULL, amount REAL NOT NULL, comment TEXT NOT NULL DEFAULT '', related_order INTEGER, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS stock_movements(id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER NOT NULL, qty INTEGER NOT NULL, unit_cost REAL NOT NULL, payer TEXT NOT NULL, comment TEXT DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
-\`);
+`);
 const run = db.prepare("INSERT OR IGNORE INTO root_groups(name) VALUES(?)");
 GROUPS.forEach(x => run.run(x));
 const cashInit = db.prepare("INSERT OR IGNORE INTO cash_accounts(admin_id,admin_name,balance) VALUES(?,?,0)");
@@ -54,8 +54,8 @@ const cancelKb = () => Markup.keyboard([["❌ Отмена"]]).resize();
 
 function saveUser(ctx) {
   const u = ctx.from;
-  db.prepare(\`INSERT INTO users(user_id,username,first_name) VALUES(?,?,?)
-    ON CONFLICT(user_id) DO UPDATE SET username=excluded.username,first_name=excluded.first_name\`)
+  db.prepare(`INSERT INTO users(user_id,username,first_name) VALUES(?,?,?)
+    ON CONFLICT(user_id) DO UPDATE SET username=excluded.username,first_name=excluded.first_name`)
     .run(String(u.id),u.username || "",u.first_name || "");
 }
 async function roots(ctx) {
@@ -100,7 +100,7 @@ bot.action(/^add:(\d+)$/,async ctx=>{
   if(!p) return ctx.reply("Товар недоступен.");
   const cart=db.prepare("SELECT qty FROM carts WHERE user_id=? AND product_id=?").get(String(ctx.from.id),p.id);
   if((cart?.qty||0)>=p.stock) return ctx.reply("Больше нет в наличии.");
-  db.prepare(\`INSERT INTO carts(user_id,product_id,qty) VALUES(?,?,1) ON CONFLICT(user_id,product_id) DO UPDATE SET qty=qty+1\`).run(String(ctx.from.id),p.id);
+  db.prepare(`INSERT INTO carts(user_id,product_id,qty) VALUES(?,?,1) ON CONFLICT(user_id,product_id) DO UPDATE SET qty=qty+1`).run(String(ctx.from.id),p.id);
   await ctx.reply("Добавлено в корзину: "+p.name);
 });
 async function showCart(ctx) {
