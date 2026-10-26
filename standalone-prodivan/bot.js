@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS cash_accounts(admin_id TEXT PRIMARY KEY, admin_name T
 CREATE TABLE IF NOT EXISTS cash_movements(id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT NOT NULL, actor_id TEXT NOT NULL, type TEXT NOT NULL, amount REAL NOT NULL, comment TEXT NOT NULL DEFAULT '', related_order INTEGER, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS stock_movements(id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER NOT NULL, qty INTEGER NOT NULL, unit_cost REAL NOT NULL, payer TEXT NOT NULL, comment TEXT DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS chat_targets(chat_id TEXT PRIMARY KEY, chat_type TEXT NOT NULL, title TEXT DEFAULT '', active INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS product_media(id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER NOT NULL, media_type TEXT NOT NULL, file_id TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0, FOREIGN KEY(product_id) REFERENCES products(id));
 `);
 const categoryCols = db.prepare("PRAGMA table_info(categories)").all().map(c => c.name); if (!categoryCols.includes("active")) db.exec("ALTER TABLE categories ADD COLUMN active INTEGER NOT NULL DEFAULT 1");
 const run = db.prepare("INSERT OR IGNORE INTO root_groups(name) VALUES(?)");
@@ -39,6 +40,7 @@ Object.entries(ADMINS).forEach(([id,name]) => cashInit.run(id,name));
 const bot = new Telegraf(TOKEN);
 const states = new Map();
 const broadcastStates = new Map();
+const mediaStates = new Map();
 // Remember private users and groups/channels that interact with the bot.
 bot.use(async (ctx, next) => {
   try {
@@ -91,7 +93,9 @@ bot.hears("🛠 Админ-панель",ctx => admin(ctx.from.id) && ctx.reply(
 bot.hears("🛍 Каталог",roots);
 bot.hears("🛒 Корзина",showCart);
 bot.hears("📦 Мои заказы",showOrders);
-bot.hears("❌ Отмена",async ctx => {clearState(ctx.from.id); await ctx.reply("Действие отменено.",homeKb(ctx.from.id));});
+bot.hears("❌ Отмена",async ctx => {clearState(ctx.from.id);mediaStates.delete(String(ctx.from.id));await ctx.reply("Действие отменено.",homeKb(ctx.from.id));});
+bot.hears("✅ Готово с медиа",async ctx=>{if(!admin(ctx.from.id))return;mediaStates.delete(String(ctx.from.id));clearState(ctx.from.id);await ctx.reply("Медиа сохранено.",adminKb());});
+bot.hears("🧹 Очистить медиа",async ctx=>{if(!admin(ctx.from.id))return;const m=mediaStates.get(String(ctx.from.id));if(!m)return ctx.reply("Сначала выберите товар.");db.prepare("DELETE FROM product_media WHERE product_id=?").run(m.productId);await ctx.reply("Старые фото и видео удалены. Теперь отправьте новые или нажмите «✅ Готово с медиа».");});
 
 bot.action(/^root:(\d+)$/,async ctx => {
   await ctx.answerCbQuery();
@@ -111,7 +115,11 @@ bot.action(/^cat:(\d+)$/,async ctx=>{
   if(!cat) return ctx.reply("Категория не найдена.");
   const ps=db.prepare("SELECT id,name,description,price,stock FROM products WHERE category_id=? AND active=1 ORDER BY name").all(id);
   if(!ps.length) return ctx.reply("В категории «"+cat.name+"» пока нет товаров.");
-  for(const p of ps) await ctx.reply("<b>"+esc(p.name)+"</b>\n"+esc(p.description)+"\nЦена: "+cash(p.price)+"\n"+(p.stock>0?"В наличии: "+p.stock:"Товар закончился"),{parse_mode:"HTML",...Markup.inlineKeyboard([[Markup.button.callback("➕ В корзину","add:"+p.id)]])});
+  for(const p of ps) {
+    const media=db.prepare("SELECT media_type,file_id FROM product_media WHERE product_id=? ORDER BY position,id").all(p.id);
+    for(const m of media){try{if(m.media_type==="photo")await ctx.replyWithPhoto(m.file_id);else if(m.media_type==="video")await ctx.replyWithVideo(m.file_id);}catch(e){console.error("Не удалось отправить медиа товара:",e.message);}}
+    await ctx.reply("<b>"+esc(p.name)+"</b>\n"+esc(p.description)+"\nЦена: "+cash(p.price)+"\n"+(p.stock>0?"В наличии: "+p.stock:"Товар закончился"),{parse_mode:"HTML",...Markup.inlineKeyboard([[Markup.button.callback("➕ В корзину","add:"+p.id)]])});
+  }
 });
 bot.action(/^add:(\d+)$/,async ctx=>{
   await ctx.answerCbQuery();saveUser(ctx);
@@ -181,8 +189,9 @@ bot.on("text",async ctx=>{
   if(s.step==="product_price"){const n=Number(t.replace(",","."));if(!Number.isFinite(n)||n<0)return ctx.reply("Введите корректную цену.");s.price=n;s.step="product_stock";return ctx.reply("Начальный остаток (целое число от 0):",cancelKb());}
   if(s.step==="product_stock"){
     const qty=Number(t);if(!Number.isInteger(qty)||qty<0)return ctx.reply("Введите целое число от 0.");
-    db.prepare("INSERT INTO products(category_id,name,description,price,stock) VALUES(?,?,?,?,?)").run(s.catId,s.name,s.description,s.price,qty);
-    clearState(ctx.from.id);return ctx.reply("Товар создан. Остаток: "+qty,adminKb());
+    const res=db.prepare("INSERT INTO products(category_id,name,description,price,stock) VALUES(?,?,?,?,?)").run(s.catId,s.name,s.description,s.price,qty);
+    clearState(ctx.from.id);mediaStates.set(String(ctx.from.id),{productId:Number(res.lastInsertRowid)});
+    return ctx.reply("Товар создан. Теперь отправьте любое количество фото/видео по одному. Нажмите «✅ Готово с медиа», когда закончите.",Markup.keyboard([["✅ Готово с медиа"],["❌ Отмена"]]).resize());
   }
   if(s.step==="price"){
     const price=Number(t.replace(",","."));if(!Number.isFinite(price)||price<0)return ctx.reply("Введите корректную цену.");
@@ -260,6 +269,8 @@ bot.action("bc:confirm",async ctx=>{
 });
 bot.on(["photo","video"],async ctx=>{
   if(!admin(ctx.from.id))return;
+  const media=mediaStates.get(String(ctx.from.id));
+  if(media){const isPhoto=Boolean(ctx.message.photo&&ctx.message.photo.length);const file=isPhoto?ctx.message.photo[ctx.message.photo.length-1].file_id:ctx.message.video.file_id;const type=isPhoto?"photo":"video";const pos=db.prepare("SELECT COALESCE(MAX(position),-1)+1 AS n FROM product_media WHERE product_id=?").get(media.productId).n;db.prepare("INSERT INTO product_media(product_id,media_type,file_id,position) VALUES(?,?,?,?)").run(media.productId,type,file,pos);return ctx.reply("Медиа добавлено к товару. Отправьте ещё или нажмите «✅ Готово с медиа».");}
   const state=broadcastStates.get(String(ctx.from.id)); if(!state)return;
   if(state.awaitingConfirm)return ctx.reply("Сначала подтвердите или отмените текущую рассылку.");
   const isPhoto=Boolean(ctx.message.photo&&ctx.message.photo.length);
@@ -280,10 +291,11 @@ bot.action(/^a:delcat:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ct
 bot.action("a:editcat",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const cs=db.prepare("SELECT c.id,c.name,r.name AS root FROM categories c JOIN root_groups r ON r.id=c.root_id WHERE c.active=1 ORDER BY r.id,c.name").all();if(!cs.length)return ctx.reply("Категорий нет.");await ctx.reply("Выберите категорию для переименования:",Markup.inlineKeyboard(cs.map(c=>[Markup.button.callback(c.root+" / "+c.name,"a:editcat:"+c.id)])));});
 bot.action(/^a:editcat:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const id=Number(ctx.match[1]);if(!db.prepare("SELECT id FROM categories WHERE id=? AND active=1").get(id))return ctx.reply("Категория не найдена.");setState(ctx.from.id,{step:"edit_category_name",categoryId:id});await ctx.reply("Введите новое название категории:",cancelKb());});
 bot.action("a:editproduct",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const ps=db.prepare("SELECT id,name,price FROM products WHERE active=1 ORDER BY name").all();if(!ps.length)return ctx.reply("Товаров нет.");await ctx.reply("Выберите товар:",Markup.inlineKeyboard(ps.map(p=>[Markup.button.callback(p.name+" — "+cash(p.price),"a:editproduct:"+p.id)])));});
-bot.action(/^a:editproduct:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const id=Number(ctx.match[1]);const p=db.prepare("SELECT * FROM products WHERE id=? AND active=1").get(id);if(!p)return ctx.reply("Товар не найден.");await ctx.reply("Что изменить у товара «"+p.name+"»?",Markup.inlineKeyboard([[Markup.button.callback("Название","a:editname:"+id)],[Markup.button.callback("Описание","a:editdesc:"+id)],[Markup.button.callback("Цена","a:editprice:"+id)]]));});
+bot.action(/^a:editproduct:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const id=Number(ctx.match[1]);const p=db.prepare("SELECT * FROM products WHERE id=? AND active=1").get(id);if(!p)return ctx.reply("Товар не найден.");await ctx.reply("Что изменить у товара «"+p.name+"»?",Markup.inlineKeyboard([[Markup.button.callback("Название","a:editname:"+id)],[Markup.button.callback("Описание","a:editdesc:"+id)],[Markup.button.callback("Цена","a:editprice:"+id)],[Markup.button.callback("Фото/видео","a:editmedia:"+id)]]));});
 bot.action(/^a:editname:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;setState(ctx.from.id,{step:"edit_product_name",productId:Number(ctx.match[1])});await ctx.reply("Введите новое название:",cancelKb());});
 bot.action(/^a:editdesc:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;setState(ctx.from.id,{step:"edit_product_desc",productId:Number(ctx.match[1])});await ctx.reply("Введите новое описание (или - чтобы очистить):",cancelKb());});
 bot.action(/^a:editprice:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;setState(ctx.from.id,{step:"edit_product_price",productId:Number(ctx.match[1])});await ctx.reply("Введите новую цену:",cancelKb());});
+bot.action(/^a:editmedia:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const id=Number(ctx.match[1]);mediaStates.set(String(ctx.from.id),{productId:id});await ctx.reply("Отправляйте фото/видео по одному. «🧹 Очистить медиа» удалит старые вложения; «✅ Готово с медиа» завершит.",Markup.keyboard([["🧹 Очистить медиа"],["✅ Готово с медиа"],["❌ Отмена"]]).resize());});
 bot.action("a:delproduct",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const ps=db.prepare("SELECT id,name FROM products WHERE active=1 ORDER BY name").all();if(!ps.length)return ctx.reply("Товаров нет.");await ctx.reply("Выберите товар для удаления:",Markup.inlineKeyboard(ps.map(p=>[Markup.button.callback(p.name,"a:delproduct:"+p.id)])));});
 bot.action(/^a:delproduct:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const id=Number(ctx.match[1]);const p=db.prepare("SELECT name FROM products WHERE id=? AND active=1").get(id);if(!p)return ctx.reply("Товар не найден.");await ctx.reply("Удалить «"+p.name+"» из каталога? История заказов сохранится.",Markup.inlineKeyboard([[Markup.button.callback("Да, удалить","a:delproductyes:"+id)],[Markup.button.callback("Отмена","a:delproductno")]]));});
 bot.action(/^a:delproductyes:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const id=Number(ctx.match[1]);db.transaction(()=>{db.prepare("UPDATE products SET active=0 WHERE id=?").run(id);db.prepare("DELETE FROM carts WHERE product_id=?").run(id);})();await ctx.reply("Товар удалён из каталога. История заказов сохранена.",adminKb());});
