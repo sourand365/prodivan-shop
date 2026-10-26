@@ -2102,7 +2102,7 @@ async function shopBeginBroadcastContent(ctx, mode, targetIds) {
   await shopSave(data);
 
   await ctx.reply(
-    "📣 Отправьте текст или фотографию с подписью.\nДля отмены нажмите кнопку.",
+    "📣 Отправьте текст, фотографию или видео с подписью.\nСначала появится предпросмотр, и только потом рассылка уйдёт получателям.",
     shopKeyboard([[shopButton("❌ Отменить рассылку", "shop_cancel_input")]]));
 }
 
@@ -2238,6 +2238,30 @@ async function shopBroadcastSelected(ctx) {
 
 async function shopSendBroadcast(ctx, content) {
   if (!(await shopAdminOnly(ctx))) return;
+  const data = await shopLoad();
+  const uid = String(ctx.from.id);
+  const state = data.broadcastMode[uid];
+  if (!state || typeof state !== "object" || state.mode === "select_groups") {
+    await ctx.reply("Рассылка не активна или выбор групп ещё не завершён.");
+    return;
+  }
+  state.pendingContent = content;
+  state.awaitingConfirm = true;
+  await shopSave(data);
+  const keyboard = shopKeyboard([
+    [shopButton("✅ Отправить выбранным получателям", "shop_broadcast_confirm")],
+    [shopButton("❌ Отменить рассылку", "shop_cancel_input")]
+  ]);
+  if (content.type === "photo") {
+    await ctx.replyWithPhoto(content.photo, { caption: "👀 ПРЕДПРОСМОТР РАССЫЛКИ\n\n" + (content.caption || ""), ...keyboard });
+  } else if (content.type === "video") {
+    await ctx.replyWithVideo(content.video, { caption: "👀 ПРЕДПРОСМОТР РАССЫЛКИ\n\n" + (content.caption || ""), ...keyboard });
+  } else {
+    await ctx.reply("👀 ПРЕДПРОСМОТР РАССЫЛКИ\n\n" + content.text, keyboard);
+  }
+}
+async function shopExecuteBroadcast(ctx, content) {
+  if (!(await shopAdminOnly(ctx))) return;
 
   const data = await shopLoad();
   const uid = String(ctx.from.id);
@@ -2282,6 +2306,9 @@ async function shopSendBroadcast(ctx, content) {
     try {
       if (content.type === "photo") {
         await bot.telegram.sendPhoto(target.id, content.photo,
+          content.caption ? { caption: content.caption } : {});
+      } else if (content.type === "video") {
+        await bot.telegram.sendVideo(target.id, content.video,
           content.caption ? { caption: content.caption } : {});
       } else {
         await bot.telegram.sendMessage(target.id, content.text);
@@ -2719,6 +2746,23 @@ bot.action("shop_clearcart", async function (ctx) {
 bot.action("shop_checkout", async function (ctx) {
   await ctx.answerCbQuery();
   await shopBeginCheckout(ctx);
+});
+
+bot.action("shop_broadcast_confirm", async function (ctx) {
+  await ctx.answerCbQuery();
+  if (!(await shopAdminOnly(ctx))) return;
+  const data = await shopLoad();
+  const uid = String(ctx.from.id);
+  const state = data.broadcastMode[uid];
+  if (!state || !state.awaitingConfirm || !state.pendingContent) {
+    await ctx.reply("Нет рассылки, ожидающей подтверждения.");
+    return;
+  }
+  const content = state.pendingContent;
+  delete state.pendingContent;
+  delete state.awaitingConfirm;
+  await shopSave(data);
+  await shopExecuteBroadcast(ctx, content);
 });
 
 bot.action("shop_cancel_input", async function (ctx) {
@@ -3199,19 +3243,21 @@ bot.on("message", async function (ctx) {
     const broadcast = data.broadcastMode[uid];
 
     if (
-      shopIsAdmin(ctx) &&
-      broadcast &&
-      typeof broadcast === "object" &&
-      broadcast.mode !== "select_groups" &&
-      ctx.message.photo &&
-      ctx.message.photo.length
+      shopIsAdmin(ctx) && broadcast && typeof broadcast === "object" &&
+      broadcast.mode !== "select_groups" && !broadcast.awaitingConfirm &&
+      ctx.message.photo && ctx.message.photo.length
     ) {
       const photo = ctx.message.photo[ctx.message.photo.length - 1].file_id;
-      await shopSendBroadcast(ctx, {
-        type: "photo",
-        photo: photo,
-        caption: ctx.message.caption || ""
-      });
+      await shopSendBroadcast(ctx, { type: "photo", photo: photo, caption: ctx.message.caption || "" });
+      return;
+    }
+
+    if (
+      shopIsAdmin(ctx) && broadcast && typeof broadcast === "object" &&
+      broadcast.mode !== "select_groups" && !broadcast.awaitingConfirm &&
+      ctx.message.video && ctx.message.video.file_id
+    ) {
+      await shopSendBroadcast(ctx, { type: "video", video: ctx.message.video.file_id, caption: ctx.message.caption || "" });
       return;
     }
 
