@@ -68,6 +68,7 @@ const adminKb = () => Markup.inlineKeyboard([
   [Markup.button.callback("✏️ Изменить товар","a:editproduct"),Markup.button.callback("🗑 Удалить товар","a:delproduct")],
   [Markup.button.callback("✏️ Изменить категорию","a:editcat"),Markup.button.callback("🗑 Удалить категорию","a:delcat")],
   [Markup.button.callback("📦 Приход / склад","a:stock"),Markup.button.callback("💵 Кассы","a:cash")],
+  [Markup.button.callback("📋 Все товары","a:allproducts")],
   [Markup.button.callback("📜 История касс","a:history"),Markup.button.callback("📋 Заказы","a:orders")],
   [Markup.button.callback("📣 Рассылка","a:broadcast")]
 ]);
@@ -84,15 +85,16 @@ async function roots(ctx) {
   return ctx.reply("Выберите раздел каталога:",Markup.inlineKeyboard(rows));
 }
 bot.start(async ctx => {
+  if(ctx.chat.type !== "private") return ctx.reply("Магазин «Продаван» работает только в личных сообщениях. Откройте бота напрямую: @"+(ctx.botInfo?.username || "bot"));
   saveUser(ctx); clearState(ctx.from.id);
   await ctx.reply("Привет! Это магазин «Продаван».",homeKb(ctx.from.id));
   if(admin(ctx.from.id)) await ctx.reply("Админ-панель:",adminKb());
 });
-bot.command("admin",ctx => admin(ctx.from.id) ? ctx.reply("Админ-панель:",adminKb()) : ctx.reply("Нет доступа."));
-bot.hears("🛠 Админ-панель",ctx => admin(ctx.from.id) && ctx.reply("Админ-панель:",adminKb()));
-bot.hears("🛍 Каталог",roots);
-bot.hears("🛒 Корзина",showCart);
-bot.hears("📦 Мои заказы",showOrders);
+bot.command("admin",ctx => ctx.chat.type!=="private" ? ctx.reply("Админ-панель доступна только в личных сообщениях.") : (admin(ctx.from.id) ? ctx.reply("Админ-панель:",adminKb()) : ctx.reply("Нет доступа.")));
+bot.hears("🛠 Админ-панель",ctx => ctx.chat.type==="private" && admin(ctx.from.id) && ctx.reply("Админ-панель:",adminKb()));
+bot.hears("🛍 Каталог",ctx => ctx.chat.type==="private" ? roots(ctx) : ctx.reply("Каталог доступен в личных сообщениях с ботом."));
+bot.hears("🛒 Корзина",ctx => ctx.chat.type==="private" ? showCart(ctx) : ctx.reply("Корзина доступна в личных сообщениях с ботом."));
+bot.hears("📦 Мои заказы",ctx => ctx.chat.type==="private" ? showOrders(ctx) : ctx.reply("Заказы доступны в личных сообщениях с ботом."));
 bot.hears("❌ Отмена",async ctx => {clearState(ctx.from.id);mediaStates.delete(String(ctx.from.id));await ctx.reply("Действие отменено.",homeKb(ctx.from.id));});
 bot.hears("✅ Готово с медиа",async ctx=>{if(!admin(ctx.from.id))return;mediaStates.delete(String(ctx.from.id));clearState(ctx.from.id);await ctx.reply("Медиа сохранено.",adminKb());});
 bot.hears("🧹 Очистить медиа",async ctx=>{if(!admin(ctx.from.id))return;const m=mediaStates.get(String(ctx.from.id));if(!m)return ctx.reply("Сначала выберите товар.");db.prepare("DELETE FROM product_media WHERE product_id=?").run(m.productId);await ctx.reply("Старые фото и видео удалены. Теперь отправьте новые или нажмите «✅ Готово с медиа».");});
@@ -104,9 +106,11 @@ bot.action(/^root:(\d+)$/,async ctx => {
   if(!r) return ctx.reply("Раздел не найден.");
   const cats=db.prepare("SELECT id,name FROM categories WHERE root_id=? AND active=1 ORDER BY name").all(rid);
   const rows=cats.map(c=>[Markup.button.callback(c.name,"cat:"+c.id)]);
+  rows.push([Markup.button.callback("🛍 Все товары раздела","rootproducts:"+rid)]);
   rows.push([Markup.button.callback("⬅️ Назад","catalog:roots")]);
   await ctx.reply("Раздел «"+r.name+"». Выберите категорию:",Markup.inlineKeyboard(rows));
 });
+bot.action(/^rootproducts:(\d+)$/,async ctx=>{await ctx.answerCbQuery();const rid=Number(ctx.match[1]);const rows=db.prepare("SELECT p.id,p.name,p.description,p.price,p.stock FROM products p JOIN categories c ON c.id=p.category_id WHERE c.root_id=? AND c.active=1 AND p.active=1 ORDER BY p.name").all(rid);if(!rows.length)return ctx.reply("В этом разделе пока нет товаров.");for(const p of rows){const media=db.prepare("SELECT media_type,file_id FROM product_media WHERE product_id=? ORDER BY position,id").all(p.id);for(const m of media){try{if(m.media_type==="photo")await ctx.replyWithPhoto(m.file_id);else await ctx.replyWithVideo(m.file_id);}catch(e){}}await ctx.reply("<b>"+esc(p.name)+"</b>\n"+esc(p.description)+"\nЦена: "+cash(p.price)+"\n"+(p.stock>0?"В наличии: "+p.stock:"Товар закончился"),{parse_mode:"HTML",...Markup.inlineKeyboard([[Markup.button.callback("➕ В корзину","add:"+p.id)]])});}});
 bot.action("catalog:roots",async ctx=>{await ctx.answerCbQuery();await roots(ctx);});
 bot.action(/^cat:(\d+)$/,async ctx=>{
   await ctx.answerCbQuery();
@@ -286,10 +290,12 @@ bot.action("a:product",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.
 bot.action(/^a:prodcat:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;setState(ctx.from.id,{step:"product_name",catId:Number(ctx.match[1])});await ctx.reply("Название товара:",cancelKb());});
 bot.action("a:price",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const ps=db.prepare("SELECT id,name,price FROM products WHERE active=1 ORDER BY name").all();if(!ps.length)return ctx.reply("Товаров нет.");await ctx.reply("Выберите товар для изменения цены:",Markup.inlineKeyboard(ps.map(p=>[Markup.button.callback(p.name+" — "+cash(p.price),"a:priceprod:"+p.id)])));});
 bot.action(/^a:priceprod:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;setState(ctx.from.id,{step:"price",productId:Number(ctx.match[1])});await ctx.reply("Введите новую цену. Цена карточки изменится только после этого действия.",cancelKb());});
-bot.action("a:delcat",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const cs=db.prepare("SELECT c.id,c.name,r.name AS root FROM categories c JOIN root_groups r ON r.id=c.root_id ORDER BY r.id,c.name").all();if(!cs.length)return ctx.reply("Категорий нет.");await ctx.reply("Удалить можно только пустую категорию:",Markup.inlineKeyboard(cs.map(c=>[Markup.button.callback(c.root+" / "+c.name,"a:delcat:"+c.id)])));});
+bot.action("a:delcat",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const cs=db.prepare("SELECT c.id,c.name,r.name AS root,(SELECT COUNT(*) FROM products p WHERE p.category_id=c.id AND p.active=1) AS product_count FROM categories c JOIN root_groups r ON r.id=c.root_id WHERE c.active=1 ORDER BY r.id,c.name").all();if(!cs.length)return ctx.reply("Категорий нет.");await ctx.reply("Выберите категорию для удаления. Товары из неё тоже скроются; история заказов сохранится.",Markup.inlineKeyboard(cs.map(c=>[Markup.button.callback(c.root+" / "+c.name+" ("+c.product_count+" тов.)","a:delcat:"+c.id)])));});
 bot.action(/^a:delcat:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const id=Number(ctx.match[1]);const r=db.prepare("UPDATE categories SET active=0 WHERE id=? AND active=1").run(id);db.prepare("UPDATE products SET active=0 WHERE category_id=?").run(id);await ctx.reply(r.changes?"Категория удалена из каталога вместе с товарами. История заказов сохранена.":"Категория не найдена.");});
 bot.action("a:editcat",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const cs=db.prepare("SELECT c.id,c.name,r.name AS root FROM categories c JOIN root_groups r ON r.id=c.root_id WHERE c.active=1 ORDER BY r.id,c.name").all();if(!cs.length)return ctx.reply("Категорий нет.");await ctx.reply("Выберите категорию для переименования:",Markup.inlineKeyboard(cs.map(c=>[Markup.button.callback(c.root+" / "+c.name,"a:editcat:"+c.id)])));});
 bot.action(/^a:editcat:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const id=Number(ctx.match[1]);if(!db.prepare("SELECT id FROM categories WHERE id=? AND active=1").get(id))return ctx.reply("Категория не найдена.");setState(ctx.from.id,{step:"edit_category_name",categoryId:id});await ctx.reply("Введите новое название категории:",cancelKb());});
+bot.action("a:allproducts",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const ps=db.prepare("SELECT p.id,p.name,p.price,p.stock,p.active,c.name AS category,r.name AS root FROM products p LEFT JOIN categories c ON c.id=p.category_id LEFT JOIN root_groups r ON r.id=c.root_id ORDER BY p.active DESC,r.id,c.name,p.name").all();if(!ps.length)return ctx.reply("Товаров пока нет.");for(const p of ps){await ctx.reply((p.active?"🟢":"⚫️")+" "+p.name+"\nРаздел: "+(p.root||"—")+"\nКатегория: "+(p.category||"без категории / категория удалена")+"\nЦена: "+cash(p.price)+"\nОстаток: "+p.stock,Markup.inlineKeyboard([[Markup.button.callback("✏️ Изменить","a:editproduct:"+p.id),Markup.button.callback(p.active?"🗑 Удалить":"♻️ Восстановить","a:allproducttoggle:"+p.id)]]));}});
+bot.action(/^a:allproducttoggle:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const id=Number(ctx.match[1]);const p=db.prepare("SELECT active,category_id FROM products WHERE id=?").get(id);if(!p)return ctx.reply("Товар не найден.");if(p.active){db.prepare("UPDATE products SET active=0 WHERE id=?").run(id);db.prepare("DELETE FROM carts WHERE product_id=?").run(id);return ctx.reply("Товар удалён из каталога.",adminKb());}const c=db.prepare("SELECT active FROM categories WHERE id=?").get(p.category_id);if(!c||!c.active)return ctx.reply("Нельзя восстановить товар: его категория удалена. Сначала восстановите категорию.");db.prepare("UPDATE products SET active=1 WHERE id=?").run(id);return ctx.reply("Товар восстановлен.",adminKb());});
 bot.action("a:editproduct",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const ps=db.prepare("SELECT id,name,price FROM products WHERE active=1 ORDER BY name").all();if(!ps.length)return ctx.reply("Товаров нет.");await ctx.reply("Выберите товар:",Markup.inlineKeyboard(ps.map(p=>[Markup.button.callback(p.name+" — "+cash(p.price),"a:editproduct:"+p.id)])));});
 bot.action(/^a:editproduct:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const id=Number(ctx.match[1]);const p=db.prepare("SELECT * FROM products WHERE id=? AND active=1").get(id);if(!p)return ctx.reply("Товар не найден.");await ctx.reply("Что изменить у товара «"+p.name+"»?",Markup.inlineKeyboard([[Markup.button.callback("Название","a:editname:"+id)],[Markup.button.callback("Описание","a:editdesc:"+id)],[Markup.button.callback("Цена","a:editprice:"+id)],[Markup.button.callback("Фото/видео","a:editmedia:"+id)]]));});
 bot.action(/^a:editname:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;setState(ctx.from.id,{step:"edit_product_name",productId:Number(ctx.match[1])});await ctx.reply("Введите новое название:",cancelKb());});
