@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS order_items(id INTEGER PRIMARY KEY AUTOINCREMENT, ord
 CREATE TABLE IF NOT EXISTS cash_accounts(admin_id TEXT PRIMARY KEY, admin_name TEXT NOT NULL, balance REAL NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS cash_movements(id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT NOT NULL, actor_id TEXT NOT NULL, type TEXT NOT NULL, amount REAL NOT NULL, comment TEXT NOT NULL DEFAULT '', related_order INTEGER, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS stock_movements(id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER NOT NULL, qty INTEGER NOT NULL, unit_cost REAL NOT NULL, payer TEXT NOT NULL, comment TEXT DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS chat_targets(chat_id TEXT PRIMARY KEY, chat_type TEXT NOT NULL, title TEXT DEFAULT '', active INTEGER NOT NULL DEFAULT 1);
 `);
 const run = db.prepare("INSERT OR IGNORE INTO root_groups(name) VALUES(?)");
 GROUPS.forEach(x => run.run(x));
@@ -36,6 +37,21 @@ Object.entries(ADMINS).forEach(([id,name]) => cashInit.run(id,name));
 
 const bot = new Telegraf(TOKEN);
 const states = new Map();
+const broadcastStates = new Map();
+// Remember private users and groups/channels that interact with the bot.
+bot.use(async (ctx, next) => {
+  try {
+    const chat = ctx.chat;
+    if (chat && (chat.type === "group" || chat.type === "supergroup" || chat.type === "channel")) {
+      db.prepare("INSERT INTO chat_targets(chat_id,chat_type,title,active) VALUES(?,?,?,1) ON CONFLICT(chat_id) DO UPDATE SET chat_type=excluded.chat_type,title=excluded.title,active=1")
+        .run(String(chat.id), chat.type, chat.title || "");
+    } else if (ctx.from && chat && chat.type === "private") {
+      db.prepare("INSERT INTO chat_targets(chat_id,chat_type,title,active) VALUES(?,?,?,1) ON CONFLICT(chat_id) DO UPDATE SET title=excluded.title,active=1")
+        .run(String(chat.id), "private", ctx.from.first_name || ctx.from.username || "");
+    }
+  } catch (e) { console.error("Не удалось обновить список получателей рассылки:", e.message); }
+  return next();
+});
 const setState = (id,s) => states.set(String(id),s);
 const getState = id => states.get(String(id));
 const clearState = id => states.delete(String(id));
@@ -48,7 +64,8 @@ const adminKb = () => Markup.inlineKeyboard([
   [Markup.button.callback("➕ Категория","a:cat"),Markup.button.callback("➕ Товар","a:product")],
   [Markup.button.callback("✏️ Изменить цену","a:price"),Markup.button.callback("🗑 Удалить категорию","a:delcat")],
   [Markup.button.callback("📦 Приход / склад","a:stock"),Markup.button.callback("💵 Кассы","a:cash")],
-  [Markup.button.callback("📜 История касс","a:history"),Markup.button.callback("📋 Заказы","a:orders")]
+  [Markup.button.callback("📜 История касс","a:history"),Markup.button.callback("📋 Заказы","a:orders")],
+  [Markup.button.callback("📣 Рассылка","a:broadcast")]
 ]);
 const cancelKb = () => Markup.keyboard([["❌ Отмена"]]).resize();
 
@@ -119,6 +136,13 @@ bot.action("checkout",async ctx=>{
   setState(ctx.from.id,{step:"phone"});await ctx.reply("Введите номер телефона:",cancelKb());
 });
 bot.on("text",async ctx=>{
+  const bs=broadcastStates.get(String(ctx.from.id));
+  if(admin(ctx.from.id)&&bs){
+    if(bs.awaitingConfirm)return ctx.reply("Сначала подтвердите или отмените текущую рассылку.");
+    const text=ctx.message.text.trim(); if(text.startsWith("/"))return;
+    bs.pending={type:"text",text};bs.awaitingConfirm=true;
+    return ctx.reply("👀 ПРЕДПРОСМОТР РАССЫЛКИ\n\n"+text,Markup.inlineKeyboard([[Markup.button.callback("✅ Подтвердить отправку","bc:confirm")],[Markup.button.callback("❌ Отменить","bc:cancel")]]));
+  }
   const s=getState(ctx.from.id);if(!s)return;
   const t=ctx.message.text.trim();if(t.startsWith("/"))return;
   if(s.step==="phone"){if(t.length<5)return ctx.reply("Введите корректный номер телефона.");s.phone=t;s.step="username";return ctx.reply("Введите Telegram-юзернейм покупателя (например, @username).",cancelKb());}
@@ -197,6 +221,48 @@ bot.on("text",async ctx=>{
   }
 });
 
+bot.action("a:broadcast",async ctx=>{
+  await ctx.answerCbQuery(); if(!admin(ctx.from.id))return;
+  await ctx.reply("📣 Рассылка. Выберите получателей:",Markup.inlineKeyboard([
+    [Markup.button.callback("👥 Всем личным пользователям","bc:users")],
+    [Markup.button.callback("💬 Группам и супергруппам","bc:groups")],
+    [Markup.button.callback("🌐 Всем пользователям и группам","bc:all")],
+    [Markup.button.callback("❌ Закрыть","bc:cancel")]]));
+});
+bot.action(/^bc:(users|groups|all)$/,async ctx=>{
+  await ctx.answerCbQuery(); if(!admin(ctx.from.id))return;
+  const mode=ctx.match[1]; broadcastStates.set(String(ctx.from.id),{mode,awaitingConfirm:false,pending:null});
+  await ctx.reply("Отправьте текст, фото с подписью или видео с подписью. Сначала появится предпросмотр; рассылка начнётся только после подтверждения.",cancelKb());
+});
+bot.action("bc:cancel",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;broadcastStates.delete(String(ctx.from.id));clearState(ctx.from.id);await ctx.reply("Рассылка отменена.",adminKb());});
+bot.action("bc:confirm",async ctx=>{
+  await ctx.answerCbQuery(); if(!admin(ctx.from.id))return;
+  const uid=String(ctx.from.id), state=broadcastStates.get(uid);
+  if(!state||!state.awaitingConfirm||!state.pending)return ctx.reply("Нет рассылки, ожидающей подтверждения.");
+  const content=state.pending; broadcastStates.delete(uid);
+  let targets=db.prepare("SELECT chat_id,chat_type FROM chat_targets WHERE active=1").all();
+  if(state.mode==="users") targets=targets.filter(x=>x.chat_type==="private");
+  if(state.mode==="groups") targets=targets.filter(x=>x.chat_type==="group"||x.chat_type==="supergroup");
+  let ok=0,failed=0;
+  for(const target of targets){try{
+    if(content.type==="photo") await bot.telegram.sendPhoto(target.chat_id,content.file,{caption:content.caption||""});
+    else if(content.type==="video") await bot.telegram.sendVideo(target.chat_id,content.file,{caption:content.caption||""});
+    else await bot.telegram.sendMessage(target.chat_id,content.text);
+    ok++;
+  }catch(e){failed++; if(e.response&&e.response.error_code===403)db.prepare("UPDATE chat_targets SET active=0 WHERE chat_id=?").run(target.chat_id);}}
+  await ctx.reply("✅ Рассылка завершена.\nПолучателей: "+targets.length+"\nУспешно: "+ok+"\nОшибок: "+failed,adminKb());
+});
+bot.on(["photo","video"],async ctx=>{
+  if(!admin(ctx.from.id))return;
+  const state=broadcastStates.get(String(ctx.from.id)); if(!state)return;
+  if(state.awaitingConfirm)return ctx.reply("Сначала подтвердите или отмените текущую рассылку.");
+  const isPhoto=Boolean(ctx.message.photo&&ctx.message.photo.length);
+  const file=isPhoto?ctx.message.photo[ctx.message.photo.length-1].file_id:ctx.message.video.file_id;
+  const pending={type:isPhoto?"photo":"video",file,caption:ctx.message.caption||""};
+  state.pending=pending;state.awaitingConfirm=true;
+  if(isPhoto) await ctx.replyWithPhoto(file,{caption:"👀 ПРЕДПРОСМОТР РАССЫЛКИ\n\n"+pending.caption, ...Markup.inlineKeyboard([[Markup.button.callback("✅ Подтвердить отправку","bc:confirm")],[Markup.button.callback("❌ Отменить","bc:cancel")]])});
+  else await ctx.replyWithVideo(file,{caption:"👀 ПРЕДПРОСМОТР РАССЫЛКИ\n\n"+pending.caption, ...Markup.inlineKeyboard([[Markup.button.callback("✅ Подтвердить отправку","bc:confirm")],[Markup.button.callback("❌ Отменить","bc:cancel")]])});
+});
 bot.action("a:cat",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;await ctx.reply("Выберите главный раздел:",Markup.inlineKeyboard(GROUPS.map(n=>[Markup.button.callback(n,"a:catroot:"+rootId(n))])));});
 bot.action(/^a:catroot:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;setState(ctx.from.id,{step:"category",rootId:Number(ctx.match[1])});await ctx.reply("Название категории:",cancelKb());});
 bot.action("a:product",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const cs=db.prepare("SELECT c.id,c.name,r.name AS root FROM categories c JOIN root_groups r ON r.id=c.root_id ORDER BY r.id,c.name").all();if(!cs.length)return ctx.reply("Сначала создайте категорию.");await ctx.reply("Выберите категорию:",Markup.inlineKeyboard(cs.map(c=>[Markup.button.callback(c.root+" / "+c.name,"a:prodcat:"+c.id)])));});
