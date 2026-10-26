@@ -85,7 +85,7 @@ async function roots(ctx) {
   return ctx.reply("Выберите раздел каталога:",Markup.inlineKeyboard(rows));
 }
 bot.start(async ctx => {
-  if(ctx.chat.type !== "private") return ctx.reply("Магазин «Продаван» работает только в личных сообщениях. Откройте бота напрямую: @"+(ctx.botInfo?.username || "bot"));
+  if(ctx.chat.type !== "private") return ctx.reply("Магазин «Продаван» работает только в личных сообщениях. Откройте бота напрямую: @"+(ctx.botInfo?.username || "bot"),Markup.removeKeyboard());
   saveUser(ctx); clearState(ctx.from.id);
   await ctx.reply("Привет! Это магазин «Продаван».",homeKb(ctx.from.id));
   if(admin(ctx.from.id)) await ctx.reply("Админ-панель:",adminKb());
