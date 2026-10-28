@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS order_admin_messages(order_id INTEGER NOT NULL, admin
 const categoryCols = db.prepare("PRAGMA table_info(categories)").all().map(c => c.name); if (!categoryCols.includes("active")) db.exec("ALTER TABLE categories ADD COLUMN active INTEGER NOT NULL DEFAULT 1");
 const productCols = db.prepare("PRAGMA table_info(products)").all().map(c => c.name); if (!productCols.includes("reserved")) db.exec("ALTER TABLE products ADD COLUMN reserved INTEGER NOT NULL DEFAULT 0");
 const orderCols = db.prepare("PRAGMA table_info(orders)").all().map(c => c.name); if (!orderCols.includes("assigned_admin")) db.exec("ALTER TABLE orders ADD COLUMN assigned_admin TEXT DEFAULT ''");
+ // Rebuild the admin-only reserve from all orders that are still open, including orders created before this update.
+db.prepare("UPDATE products SET reserved=COALESCE((SELECT SUM(oi.qty) FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE oi.product_id=products.id AND o.status IN ('new','in_progress')),0)").run();
 const run = db.prepare("INSERT OR IGNORE INTO root_groups(name) VALUES(?)");
 GROUPS.forEach(x => run.run(x));
 const cashInit = db.prepare("INSERT OR IGNORE INTO cash_accounts(admin_id,admin_name,balance) VALUES(?,?,0)");
