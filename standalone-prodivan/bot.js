@@ -269,7 +269,7 @@ async function roots(ctx) {
   `).all();
   if (!groups.length) return ctx.reply("Разделы каталога пока недоступны. Обратитесь к администратору.");
   const rows = groups.map(group => [Markup.button.callback(group.name, "root:" + group.id)]);
-  return ctx.reply("🛍 Каталог «Продаван»\\nВыберите раздел:", Markup.inlineKeyboard(rows));
+  return ctx.reply("🛍 Каталог «Продаван»\nВыберите раздел:", Markup.inlineKeyboard(rows));
 }
 
 const rootId = name => db.prepare("SELECT id FROM root_groups WHERE name=?").get(name)?.id;
