@@ -309,9 +309,55 @@ function saveUser(ctx) {
     ON CONFLICT(user_id) DO UPDATE SET username=excluded.username,first_name=excluded.first_name`)
     .run(String(u.id),u.username || "",u.first_name || "");
 }
-async function roots(ctx) {
-  const rows = GROUPS.map(n => [Markup.button.callback(n,"root:"+rootId(n))]);
-  return ctx.reply("Выберите раздел каталога:",Markup.inlineKeyboard(rows));
+async function sendProductCard(ctx, product) {
+  const media = db.prepare("SELECT media_type,file_id FROM product_media WHERE product_id=? ORDER BY position,id").all(product.id);
+  let photos = [];
+  const flushPhotos = async () => {
+    if (!photos.length) return;
+    try {
+      if (photos.length === 1) await ctx.replyWithPhoto(photos[0].media);
+      else await ctx.telegram.sendMediaGroup(ctx.chat.id, photos);
+    } catch (e) {
+      console.error("Не удалось отправить альбом товара:", product.id, e.message);
+      for (const item of photos) {
+        try { await ctx.replyWithPhoto(item.media); } catch (inner) { console.error("Не удалось отправить фото товара:", inner.message); }
+      }
+    }
+    photos = [];
+  };
+  for (const item of media) {
+    if (item.media_type === "photo") {
+      photos.push({ type: "photo", media: item.file_id });
+      if (photos.length === 8) await flushPhotos();
+    } else {
+      await flushPhotos();
+      try { await ctx.replyWithVideo(item.file_id); }
+      catch (e) { console.error("Не удалось отправить видео товара:", product.id, e.message); }
+    }
+  }
+  await flushPhotos();
+  await ctx.reply("<b>"+esc(product.name)+"</b>\\n"+esc(product.description||"")+"\\nЦена: "+cash(product.price)+"\\n"+(Number(product.stock)>0?"В наличии: "+product.stock:"Товар закончился"), {
+    parse_mode: "HTML",
+    ...Markup.inlineKeyboard([
+      [Markup.button.callback("➕ В корзину","add:"+product.id)],
+      [Markup.button.callback("⬅️ К списку товаров", "cat:"+product.category_id)]
+    ])
+  });
+}
+async function showCategoryProducts(ctx, categoryId) {
+  const cat = db.prepare("SELECT id,name,root_id FROM categories WHERE id=? AND active=1").get(categoryId);
+  if (!cat) return ctx.reply("Категория не найдена.");
+  const products = db.prepare("SELECT id,name FROM products WHERE category_id=? AND active=1 ORDER BY name").all(categoryId);
+  if (!products.length) return ctx.reply("В категории «"+cat.name+"» пока нет товаров.");
+  const rows = products.map(p => [Markup.button.callback(p.name, "product:"+p.id)]);
+  rows.push([Markup.button.callback("🛍 Все товары", "catall:"+categoryId)]);
+  rows.push([Markup.button.callback("⬅️ Назад к категориям", "root:"+cat.root_id)]);
+  return ctx.reply("Категория «"+cat.name+"». Выберите товар по названию:", Markup.inlineKeyboard(rows));
+}
+async function showRootProducts(ctx, rootGroupId) {
+  const products = db.prepare("SELECT p.id,p.name FROM products p JOIN categories c ON c.id=p.category_id WHERE c.root_id=? AND c.active=1 AND p.active=1 ORDER BY p.name").all(rootGroupId);
+  if (!products.length) return ctx.reply("В этом разделе пока нет товаров.");
+  return ctx.reply("Товары раздела — выберите название:", Markup.inlineKeyboard(products.map(p => [Markup.button.callback(p.name, "product:"+p.id)])));
 }
 bot.start(async ctx => {
   if(ctx.chat.type !== "private") return ctx.reply("Магазин «Продаван» работает только в личных сообщениях. Откройте бота напрямую: @"+(ctx.botInfo?.username || "bot"),Markup.removeKeyboard());
@@ -339,20 +385,21 @@ bot.action(/^root:(\d+)$/,async ctx => {
   rows.push([Markup.button.callback("⬅️ Назад","catalog:roots")]);
   await ctx.reply("Раздел «"+r.name+"». Выберите категорию:",Markup.inlineKeyboard(rows));
 });
-bot.action(/^rootproducts:(\d+)$/,async ctx=>{await ctx.answerCbQuery();const rid=Number(ctx.match[1]);const rows=db.prepare("SELECT p.id,p.name,p.description,p.price,(p.stock-p.reserved) AS stock FROM products p JOIN categories c ON c.id=p.category_id WHERE c.root_id=? AND c.active=1 AND p.active=1 ORDER BY p.name").all(rid);if(!rows.length)return ctx.reply("В этом разделе пока нет товаров.");for(const p of rows){const media=db.prepare("SELECT media_type,file_id FROM product_media WHERE product_id=? ORDER BY position,id").all(p.id);for(const m of media){try{if(m.media_type==="photo")await ctx.replyWithPhoto(m.file_id);else await ctx.replyWithVideo(m.file_id);}catch(e){}}await ctx.reply("<b>"+esc(p.name)+"</b>\n"+esc(p.description)+"\nЦена: "+cash(p.price)+"\n"+(p.stock>0?"В наличии: "+p.stock:"Товар закончился"),{parse_mode:"HTML",...Markup.inlineKeyboard([[Markup.button.callback("➕ В корзину","add:"+p.id)]])});}});
+bot.action(/^rootproducts:(\d+)$/,async ctx=>{await ctx.answerCbQuery();await showRootProducts(ctx,Number(ctx.match[1]));});
 bot.action("catalog:roots",async ctx=>{await ctx.answerCbQuery();await roots(ctx);});
-bot.action(/^cat:(\d+)$/,async ctx=>{
+bot.action(/^cat:(\\d+)$/,async ctx=>{await ctx.answerCbQuery();await showCategoryProducts(ctx,Number(ctx.match[1]));});
+bot.action(/^catall:(\\d+)$/,async ctx=>{
   await ctx.answerCbQuery();
   const id=Number(ctx.match[1]);
-  const cat=db.prepare("SELECT name FROM categories WHERE id=? AND active=1").get(id);
-  if(!cat) return ctx.reply("Категория не найдена.");
-  const ps=db.prepare("SELECT id,name,description,price,(stock-reserved) AS stock FROM products WHERE category_id=? AND active=1 ORDER BY name").all(id);
-  if(!ps.length) return ctx.reply("В категории «"+cat.name+"» пока нет товаров.");
-  for(const p of ps) {
-    const media=db.prepare("SELECT media_type,file_id FROM product_media WHERE product_id=? ORDER BY position,id").all(p.id);
-    for(const m of media){try{if(m.media_type==="photo")await ctx.replyWithPhoto(m.file_id);else if(m.media_type==="video")await ctx.replyWithVideo(m.file_id);}catch(e){console.error("Не удалось отправить медиа товара:",e.message);}}
-    await ctx.reply("<b>"+esc(p.name)+"</b>\n"+esc(p.description)+"\nЦена: "+cash(p.price)+"\n"+(p.stock>0?"В наличии: "+p.stock:"Товар закончился"),{parse_mode:"HTML",...Markup.inlineKeyboard([[Markup.button.callback("➕ В корзину","add:"+p.id)]])});
-  }
+  const ps=db.prepare("SELECT id,name,description,price,stock,category_id FROM products WHERE category_id=? AND active=1 ORDER BY name").all(id);
+  if(!ps.length)return ctx.reply("В этой категории пока нет товаров.");
+  for(const p of ps) await sendProductCard(ctx,p);
+});
+bot.action(/^product:(\\d+)$/,async ctx=>{
+  await ctx.answerCbQuery();
+  const p=db.prepare("SELECT id,name,description,price,stock,category_id FROM products WHERE id=? AND active=1").get(Number(ctx.match[1]));
+  if(!p)return ctx.reply("Товар недоступен.");
+  await sendProductCard(ctx,p);
 });
 bot.action(/^add:(\d+)$/,async ctx=>{
   await ctx.answerCbQuery();saveUser(ctx);
