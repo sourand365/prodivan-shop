@@ -336,7 +336,7 @@ async function sendProductCard(ctx, product) {
     }
   }
   await flushPhotos();
-  await ctx.reply("<b>"+esc(product.name)+"</b>\\n"+esc(product.description||"")+"\\nЦена: "+cash(product.price)+"\\n"+(Number(product.stock)>0?"В наличии: "+product.stock:"Товар закончился"), {
+  await ctx.reply("<b>"+esc(product.name)+"</b>\\n"+esc(product.description||"")+"\\nЦена: "+cash(product.price)+"\n"+(Number(product.stock)>0?"В наличии: "+product.stock:"Товар закончился"), {
     parse_mode: "HTML",
     ...Markup.inlineKeyboard([
       [Markup.button.callback("➕ В корзину","add:"+product.id)],
@@ -387,15 +387,15 @@ bot.action(/^root:(\d+)$/,async ctx => {
 });
 bot.action(/^rootproducts:(\d+)$/,async ctx=>{await ctx.answerCbQuery();await showRootProducts(ctx,Number(ctx.match[1]));});
 bot.action("catalog:roots",async ctx=>{await ctx.answerCbQuery();await roots(ctx);});
-bot.action(/^cat:(\\d+)$/,async ctx=>{await ctx.answerCbQuery();await showCategoryProducts(ctx,Number(ctx.match[1]));});
-bot.action(/^catall:(\\d+)$/,async ctx=>{
+bot.action(/^cat:(\d+)$/,async ctx=>{await ctx.answerCbQuery();await showCategoryProducts(ctx,Number(ctx.match[1]));});
+bot.action(/^catall:(\d+)$/,async ctx=>{
   await ctx.answerCbQuery();
   const id=Number(ctx.match[1]);
   const ps=db.prepare("SELECT id,name,description,price,stock,category_id FROM products WHERE category_id=? AND active=1 ORDER BY name").all(id);
   if(!ps.length)return ctx.reply("В этой категории пока нет товаров.");
   for(const p of ps) await sendProductCard(ctx,p);
 });
-bot.action(/^product:(\\d+)$/,async ctx=>{
+bot.action(/^product:(\d+)$/,async ctx=>{
   await ctx.answerCbQuery();
   const p=db.prepare("SELECT id,name,description,price,stock,category_id FROM products WHERE id=? AND active=1").get(Number(ctx.match[1]));
   if(!p)return ctx.reply("Товар недоступен.");
