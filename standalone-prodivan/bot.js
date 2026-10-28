@@ -250,6 +250,28 @@ async function scheduledExcelReports() {
   }
 }
 
+async function roots(ctx) {
+  if (!ctx.chat || ctx.chat.type !== "private") {
+    return ctx.reply("Каталог доступен только в личных сообщениях с ботом.");
+  }
+  // Ensure the three fixed top-level sections exist even if the local database
+  // was created by an older version of the bot.
+  const insertRoot = db.prepare("INSERT OR IGNORE INTO root_groups(name) VALUES(?)");
+  for (const name of GROUPS) insertRoot.run(name);
+  const groups = db.prepare(`
+    SELECT id, name FROM root_groups
+    ORDER BY CASE name
+      WHEN 'Товары' THEN 1
+      WHEN 'Аренда' THEN 2
+      WHEN 'Комплектующие' THEN 3
+      ELSE 4
+    END, id
+  `).all();
+  if (!groups.length) return ctx.reply("Разделы каталога пока недоступны. Обратитесь к администратору.");
+  const rows = groups.map(group => [Markup.button.callback(group.name, "root:" + group.id)]);
+  return ctx.reply("🛍 Каталог «Продаван»\\nВыберите раздел:", Markup.inlineKeyboard(rows));
+}
+
 const rootId = name => db.prepare("SELECT id FROM root_groups WHERE name=?").get(name)?.id;
 const homeKb = id => Markup.keyboard(admin(id) ? [["🛍 Каталог","🛒 Корзина"],["📦 Мои заказы","🛠 Админ-панель"]] : [["🛍 Каталог","🛒 Корзина"],["📦 Мои заказы"]]).resize();
 const adminKb = () => Markup.inlineKeyboard([
