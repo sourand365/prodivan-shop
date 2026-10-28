@@ -121,7 +121,7 @@ function styleSheet(sheet) {
   sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
   sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF305496" } };
   sheet.getRow(1).alignment = { vertical: "middle", wrapText: true };
-  sheet.autoFilter = sheet.rowCount ? { from: { row: 1, column: 1 }, to: { row: 1, column: Math.max(1, sheet.columnCount) } } : undefined;
+  sheet.autoFilter = sheet.rowCount ? { from: { row: 1, column: 1 }, to: { row: Math.max(1, sheet.rowCount), column: Math.max(1, sheet.columnCount) } } : undefined;
   for (const col of sheet.columns) {
     let max = 12;
     col.eachCell({ includeEmpty: false }, cell => { max = Math.max(max, String(cell.value ?? "").length + 2); });
@@ -164,8 +164,10 @@ async function createExcelReport(type, today = kyivDate(new Date())) {
     Подтвердил: ADMINS[String(o.confirming_admin || "")] || ""
   }));
   addReportSheet(workbook, "Заказы", [
-    ["№ заказа","Заказ","Создано (UTC)","Статус","Покупатель","Телефон","Telegram юз","Сумма по каталогу, грн","Итог клиента, грн","Ответственный","Подтвердил"]
-  ].map(x => x.slice(1)), orderRows);
+    ["№ заказа","Заказ",12],["Создано (UTC)","Создан",22],["Статус","Статус",16],["Покупатель","Покупатель",24],
+    ["Телефон","Телефон",18],["Telegram юз","Юз",22],["Сумма по каталогу, грн","СуммаКаталога",20],
+    ["Итог клиента, грн","ИтогКлиента",18],["Ответственный","Ответственный",18],["Подтвердил","Подтвердил",18]
+  ], orderRows);
   const confirmed = allOrders.filter(o => o.status === "confirmed" && dateInPeriod(o.updated_at || o.created_at, period));
   const salesRows = [];
   for (const o of confirmed) {
@@ -179,11 +181,13 @@ async function createExcelReport(type, today = kyivDate(new Date())) {
     });
   }
   addReportSheet(workbook, "Продажи", [
-    ["Заказ","Дата продажи","Товар","Количество","Цена каталога, грн","Сумма по каталогу, грн","Итог заказа, грн","Разница со скидкой, грн","Касса администратора"]
+    ["Заказ","Заказ",12],["Дата продажи","Дата",16],["Товар","Товар",28],["Количество","Количество",14],
+    ["Цена каталога, грн","ЦенаКаталога",18],["Сумма по каталогу, грн","СуммаСтроки",20],
+    ["Итог заказа, грн","ИтогВсегоЗаказа",18],["Разница со скидкой, грн","СкидкаИлиКорректировка",22],["Касса администратора","Касса",20]
   ], salesRows);
   const accounts = db.prepare("SELECT * FROM cash_accounts ORDER BY admin_name").all();
   addReportSheet(workbook, "Кассы", [
-    ["ID администратора","Администратор","Текущий баланс, грн"]
+    ["ID администратора","ID администратора",20],["Администратор","Администратор",20],["Текущий баланс, грн","Текущий баланс, грн",22]
   ], accounts.map(a => ({ "ID администратора": a.admin_id, Администратор: a.admin_name, "Текущий баланс, грн": Number(a.balance || 0) })));
   const cashRows = db.prepare("SELECT m.*,a.admin_name FROM cash_movements m JOIN cash_accounts a ON a.admin_id=m.account_id ORDER BY m.id").all()
     .filter(m => dateInPeriod(m.created_at, period))
@@ -192,7 +196,8 @@ async function createExcelReport(type, today = kyivDate(new Date())) {
       Комментарий: m.comment || "", Заказ: m.related_order || "", КтоВыполнил: ADMINS[String(m.actor_id)] || m.actor_id
     }));
   addReportSheet(workbook, "История касс", [
-    ["ID","Дата (UTC)","Касса","Операция","Сумма, грн","Комментарий","№ заказа","Кто выполнил"]
+    ["ID","ID",10],["Дата (UTC)","Дата",22],["Касса","Касса",18],["Операция","Тип",18],
+    ["Сумма, грн","Сумма",16],["Комментарий","Комментарий",34],["№ заказа","Заказ",12],["Кто выполнил","КтоВыполнил",20]
   ], cashRows);
   const stockRowsPeriod = db.prepare("SELECT sm.*,p.name AS product_name FROM stock_movements sm LEFT JOIN products p ON p.id=sm.product_id ORDER BY sm.id").all()
     .filter(m => dateInPeriod(m.created_at, period))
@@ -202,7 +207,9 @@ async function createExcelReport(type, today = kyivDate(new Date())) {
       КтоОплатил: m.payer, Комментарий: m.comment || ""
     }));
   addReportSheet(workbook, "Поступления", [
-    ["ID","Дата (UTC)","Товар","Количество","Себестоимость за единицу, грн","Себестоимость всего, грн","Кто оплатил","Комментарий"]
+    ["ID","ID",10],["Дата (UTC)","Дата",22],["Товар","Товар",28],["Количество","Количество",14],
+    ["Себестоимость за единицу, грн","СебестоимостьЕд",24],["Себестоимость всего, грн","ОбщаяСебестоимость",24],
+    ["Кто оплатил","КтоОплатил",18],["Комментарий","Комментарий",32]
   ], stockRowsPeriod);
   const filePath = path.join(period.folder, period.file);
   await workbook.xlsx.writeFile(filePath);
