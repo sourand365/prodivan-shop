@@ -75,7 +75,46 @@ const adminKb = () => Markup.inlineKeyboard([
   [Markup.button.callback("📜 История касс","a:history"),Markup.button.callback("📋 Заказы","a:orders")],
   [Markup.button.callback("📣 Рассылка","a:broadcast")]
 ]);
+
 const cancelKb = () => Markup.keyboard([["❌ Отмена"]]).resize();
+function orderContactUrl(order) {
+  const username = String(order.tg_username || "").trim().replace(/^@/, "");
+  return /^[A-Za-z0-9_]{5,32}$/.test(username) ? "https://t.me/" + username : "";
+}
+function orderKeyboard(order, adminId) {
+  const owner = String(order.assigned_admin || "");
+  if (order.status === "new" && !owner) return Markup.inlineKeyboard([[Markup.button.callback("🛠 Взять в работу", "order:take:" + order.id)]]);
+  if (order.status !== "in_progress" || owner !== String(adminId)) return undefined;
+  const rows = [
+    [Markup.button.callback("✅ Подтвердить", "confirm:" + order.id), Markup.button.callback("❌ Отменить", "cancel:" + order.id)],
+    [Markup.button.callback("↪️ Передать заказ", "order:transfer:" + order.id)]
+  ];
+  const url = orderContactUrl(order);
+  if (url) rows.push([Markup.button.url("💬 Написать клиенту", url)]);
+  return Markup.inlineKeyboard(rows);
+}
+function canManageOrder(order, adminId) {
+  return !!order && order.status === "in_progress" && String(order.assigned_admin || "") === String(adminId);
+}
+async function refreshOrderAdminMessages(orderId) {
+  const order = db.prepare("SELECT * FROM orders WHERE id=?").get(orderId);
+  if (!order) return;
+  const messages = db.prepare("SELECT admin_id,chat_id,message_id FROM order_admin_messages WHERE order_id=?").all(orderId);
+  for (const m of messages) {
+    const keyboard = orderKeyboard(order, m.admin_id);
+    try {
+      await bot.telegram.editMessageReplyMarkup(m.chat_id, m.message_id, undefined, keyboard ? keyboard.reply_markup : { inline_keyboard: [] });
+    } catch (e) {
+      if (!/message is not modified/i.test(e.message || "")) console.error("Не удалось обновить кнопки заказа", orderId, m.admin_id, e.message);
+    }
+  }
+}
+async function sendOrderAdminMessage(adminId, order, text) {
+  const keyboard = orderKeyboard(order, adminId);
+  const sent = await bot.telegram.sendMessage(adminId, text, keyboard || {});
+  db.prepare("INSERT INTO order_admin_messages(order_id,admin_id,chat_id,message_id) VALUES(?,?,?,?) ON CONFLICT(order_id,admin_id) DO UPDATE SET chat_id=excluded.chat_id,message_id=excluded.message_id")
+    .run(order.id, String(adminId), String(adminId), sent.message_id);
+}
 
 function saveUser(ctx) {
   const u = ctx.from;
