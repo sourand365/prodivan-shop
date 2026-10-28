@@ -2,7 +2,8 @@ require("dotenv").config();
 const fs = require("fs");
 const path = require("path");
 const Database = require("better-sqlite3");
-const { Telegraf, Markup } = require("telegraf");
+const { Telegraf, Markup, Input } = require("telegraf");
+const ExcelJS = require("exceljs");
 
 const TOKEN = process.env.BOT_TOKEN;
 if (!TOKEN || TOKEN === "PASTE_PRODIVAN_BOT_TOKEN_HERE") {
@@ -13,6 +14,8 @@ const ADMINS = { "5340322240": "Андрей", "688000422": "Александр"
 const ADMIN_IDS = Object.keys(ADMINS);
 const GROUPS = ["Товары", "Аренда", "Комплектующие"];
 const DATA_DIR = path.join(__dirname, "data");
+const REPORTS_DIR = path.join(__dirname, "Отчёты");
+fs.mkdirSync(REPORTS_DIR, { recursive: true });
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const db = new Database(path.join(DATA_DIR, "prodivan.sqlite"));
 db.pragma("journal_mode = WAL");
@@ -66,6 +69,187 @@ const clearState = id => states.delete(String(id));
 const admin = id => Boolean(ADMINS[String(id)]);
 const cash = n => Number(n || 0).toFixed(2) + " грн";
 const esc = s => String(s ?? "").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+const REPORT_TZ = "Europe/Kyiv";
+function kyivParts(value = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: REPORT_TZ, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23"
+  }).formatToParts(value);
+  return Object.fromEntries(parts.filter(x => x.type !== "literal").map(x => [x.type, x.value]));
+}
+function kyivDate(value) {
+  if (!value) return "";
+  const raw = String(value);
+  const date = new Date(/[zZ]|[+-]\d\d:\d\d$/.test(raw) ? raw : raw.replace(" ", "T") + "Z");
+  if (Number.isNaN(date.getTime())) return raw.slice(0, 10);
+  const p = kyivParts(date);
+  return p.year + "-" + p.month + "-" + p.day;
+}
+function dateInPeriod(value, period) {
+  const d = kyivDate(value);
+  return d >= period.startDate && d <= period.endDate;
+}
+function isoWeekInfo(dateKey) {
+  const d = new Date(dateKey + "T00:00:00Z");
+  const weekday = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - weekday);
+  const year = d.getUTCFullYear();
+  const yearStart = new Date(Date.UTC(year, 0, 1));
+  const week = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+  return { year, week, key: year + "-W" + String(week).padStart(2, "0") };
+}
+function addDays(dateKey, amount) {
+  const d = new Date(dateKey + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + amount);
+  return d.toISOString().slice(0, 10);
+}
+function periodFor(type, today) {
+  if (type === "daily") return { startDate: today, endDate: today, folder: path.join(REPORTS_DIR, "Ежедневные", today), file: "Отчёт_" + today + ".xlsx", title: "Ежедневный отчёт " + today };
+  if (type === "weekly") {
+    const d = new Date(today + "T00:00:00Z");
+    const weekday = d.getUTCDay() || 7;
+    const startDate = addDays(today, 1 - weekday);
+    const info = isoWeekInfo(today);
+    return { startDate, endDate: today, folder: path.join(REPORTS_DIR, "Еженедельные", info.key), file: "Отчёт_" + info.key + ".xlsx", title: "Еженедельный отчёт " + info.key };
+  }
+  const startDate = today.slice(0, 7) + "-01";
+  return { startDate, endDate: today, folder: path.join(REPORTS_DIR, "Ежемесячные", today.slice(0, 7)), file: "Отчёт_" + today.slice(0, 7) + ".xlsx", title: "Ежемесячный отчёт " + today.slice(0, 7) };
+}
+function styleSheet(sheet) {
+  sheet.views = [{ state: "frozen", ySplit: 1 }];
+  sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+  sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF305496" } };
+  sheet.getRow(1).alignment = { vertical: "middle", wrapText: true };
+  sheet.autoFilter = sheet.rowCount ? { from: { row: 1, column: 1 }, to: { row: Math.max(1, sheet.rowCount), column: Math.max(1, sheet.columnCount) } } : undefined;
+  for (const col of sheet.columns) {
+    let max = 12;
+    col.eachCell({ includeEmpty: false }, cell => { max = Math.max(max, String(cell.value ?? "").length + 2); });
+    col.width = Math.min(max, 36);
+  }
+  sheet.eachRow(row => row.eachCell(cell => { cell.alignment = { vertical: "top", wrapText: true }; }));
+}
+function addReportSheet(workbook, name, columns, rows) {
+  const sheet = workbook.addWorksheet(name);
+  sheet.columns = columns.map(([header, key, width]) => ({ header, key, width: width || 18 }));
+  sheet.addRows(rows);
+  styleSheet(sheet);
+  return sheet;
+}
+async function createExcelReport(type, today = kyivDate(new Date())) {
+  const period = periodFor(type, today);
+  fs.mkdirSync(period.folder, { recursive: true });
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Продаван";
+  workbook.created = new Date();
+  workbook.subject = period.title + " · Europe/Kyiv";
+  workbook.title = period.title;
+  const products = db.prepare("SELECT p.id,p.name,p.description,p.price,p.stock,p.reserved,p.active,c.name AS category,r.name AS root FROM products p LEFT JOIN categories c ON c.id=p.category_id LEFT JOIN root_groups r ON r.id=c.root_id ORDER BY r.id,c.name,p.name").all();
+  const stockRows = products.map(p => ({
+    ID: p.id, Раздел: p.root || "", Категория: p.category || "", Товар: p.name,
+    Цена: Number(p.price || 0), Остаток: Number(p.stock || 0), Резерв: Number(p.reserved || 0),
+    Свободно: Math.max(0, Number(p.stock || 0) - Number(p.reserved || 0)),
+    Активен: p.active ? "Да" : "Нет", Описание: p.description || ""
+  }));
+  addReportSheet(workbook, "Склад", [
+    ["ID","ID",10],["Главный раздел","Раздел",20],["Категория","Категория",24],["Товар","Товар",30],
+    ["Цена, грн","Цена",14],["Остаток","Остаток",12],["Резерв","Резерв",12],["Свободно","Свободно",12],
+    ["Активен","Активен",12],["Описание","Описание",36]
+  ], stockRows);
+  const allOrders = db.prepare("SELECT * FROM orders ORDER BY id").all();
+  const orderRows = allOrders.filter(o => dateInPeriod(o.created_at, period)).map(o => ({
+    Заказ: o.id, Создан: o.created_at, Статус: o.status, Покупатель: o.customer_name || o.username || "",
+    Телефон: o.phone, Юз: o.tg_username, СуммаКаталога: Number(o.total || 0),
+    ИтогКлиента: Number(o.final_total || 0), Ответственный: ADMINS[String(o.assigned_admin || "")] || "",
+    Подтвердил: ADMINS[String(o.confirming_admin || "")] || ""
+  }));
+  addReportSheet(workbook, "Заказы", [
+    ["№ заказа","Заказ",12],["Создано (UTC)","Создан",22],["Статус","Статус",16],["Покупатель","Покупатель",24],
+    ["Телефон","Телефон",18],["Telegram юз","Юз",22],["Сумма по каталогу, грн","СуммаКаталога",20],
+    ["Итог клиента, грн","ИтогКлиента",18],["Ответственный","Ответственный",18],["Подтвердил","Подтвердил",18]
+  ], orderRows);
+  const confirmed = allOrders.filter(o => o.status === "confirmed" && dateInPeriod(o.updated_at || o.created_at, period));
+  const salesRows = [];
+  for (const o of confirmed) {
+    const items = db.prepare("SELECT product_name,qty,unit_price FROM order_items WHERE order_id=? ORDER BY id").all(o.id);
+    for (const item of items) salesRows.push({
+      Заказ: o.id, Дата: kyivDate(o.updated_at || o.created_at), Товар: item.product_name,
+      Количество: Number(item.qty), ЦенаКаталога: Number(item.unit_price),
+      СуммаСтроки: Number(item.qty) * Number(item.unit_price),
+      ИтогВсегоЗаказа: Number(o.final_total || 0), СкидкаИлиКорректировка: Number(o.total || 0) - Number(o.final_total || 0),
+      Касса: ADMINS[String(o.confirming_admin || "")] || ""
+    });
+  }
+  addReportSheet(workbook, "Продажи", [
+    ["Заказ","Заказ",12],["Дата продажи","Дата",16],["Товар","Товар",28],["Количество","Количество",14],
+    ["Цена каталога, грн","ЦенаКаталога",18],["Сумма по каталогу, грн","СуммаСтроки",20],
+    ["Итог заказа, грн","ИтогВсегоЗаказа",18],["Разница со скидкой, грн","СкидкаИлиКорректировка",22],["Касса администратора","Касса",20]
+  ], salesRows);
+  const accounts = db.prepare("SELECT * FROM cash_accounts ORDER BY admin_name").all();
+  addReportSheet(workbook, "Кассы", [
+    ["ID администратора","ID администратора",20],["Администратор","Администратор",20],["Текущий баланс, грн","Текущий баланс, грн",22]
+  ], accounts.map(a => ({ "ID администратора": a.admin_id, Администратор: a.admin_name, "Текущий баланс, грн": Number(a.balance || 0) })));
+  const cashRows = db.prepare("SELECT m.*,a.admin_name FROM cash_movements m JOIN cash_accounts a ON a.admin_id=m.account_id ORDER BY m.id").all()
+    .filter(m => dateInPeriod(m.created_at, period))
+    .map(m => ({
+      ID: m.id, Дата: m.created_at, Касса: m.admin_name, Тип: m.type, Сумма: Number(m.amount),
+      Комментарий: m.comment || "", Заказ: m.related_order || "", КтоВыполнил: ADMINS[String(m.actor_id)] || m.actor_id
+    }));
+  addReportSheet(workbook, "История касс", [
+    ["ID","ID",10],["Дата (UTC)","Дата",22],["Касса","Касса",18],["Операция","Тип",18],
+    ["Сумма, грн","Сумма",16],["Комментарий","Комментарий",34],["№ заказа","Заказ",12],["Кто выполнил","КтоВыполнил",20]
+  ], cashRows);
+  const stockRowsPeriod = db.prepare("SELECT sm.*,p.name AS product_name FROM stock_movements sm LEFT JOIN products p ON p.id=sm.product_id ORDER BY sm.id").all()
+    .filter(m => dateInPeriod(m.created_at, period))
+    .map(m => ({
+      ID: m.id, Дата: m.created_at, Товар: m.product_name || ("ID " + m.product_id),
+      Количество: Number(m.qty), СебестоимостьЕд: Number(m.unit_cost), ОбщаяСебестоимость: Number(m.qty) * Number(m.unit_cost),
+      КтоОплатил: m.payer, Комментарий: m.comment || ""
+    }));
+  addReportSheet(workbook, "Поступления", [
+    ["ID","ID",10],["Дата (UTC)","Дата",22],["Товар","Товар",28],["Количество","Количество",14],
+    ["Себестоимость за единицу, грн","СебестоимостьЕд",24],["Себестоимость всего, грн","ОбщаяСебестоимость",24],
+    ["Кто оплатил","КтоОплатил",18],["Комментарий","Комментарий",32]
+  ], stockRowsPeriod);
+  const filePath = path.join(period.folder, period.file);
+  await workbook.xlsx.writeFile(filePath);
+  return { filePath, title: period.title, period };
+}
+async function sendDailyExcelReport(adminId) {
+  const report = await createExcelReport("daily");
+  await bot.telegram.sendDocument(String(adminId), Input.fromLocalFile(report.filePath, path.basename(report.filePath)), {
+    caption: report.title + "\nПериод: " + report.period.startDate + " — " + report.period.endDate + "\nФайл также сохранён локально."
+  });
+  return report;
+}
+const reportRuns = new Set();
+async function scheduledExcelReports() {
+  const p = kyivParts(new Date());
+  if (p.hour !== "23" || p.minute !== "55") return;
+  const today = p.year + "-" + p.month + "-" + p.day;
+  const marker = today + " 23:55";
+  if (reportRuns.has(marker)) return;
+  reportRuns.add(marker);
+  try {
+    const daily = await createExcelReport("daily", today);
+    console.log("Excel ежедневный отчёт сохранён:", daily.filePath);
+    const d = new Date(today + "T00:00:00Z");
+    const weekday = d.getUTCDay();
+    if (weekday === 0) {
+      const weekly = await createExcelReport("weekly", today);
+      console.log("Excel недельный отчёт сохранён:", weekly.filePath);
+    }
+    const tomorrow = addDays(today, 1);
+    if (tomorrow.slice(0, 7) !== today.slice(0, 7)) {
+      const monthly = await createExcelReport("monthly", today);
+      console.log("Excel месячный отчёт сохранён:", monthly.filePath);
+    }
+  } catch (e) {
+    console.error("Не удалось сформировать Excel-отчёт:", e);
+    reportRuns.delete(marker);
+  }
+}
+
 const rootId = name => db.prepare("SELECT id FROM root_groups WHERE name=?").get(name)?.id;
 const homeKb = id => Markup.keyboard(admin(id) ? [["🛍 Каталог","🛒 Корзина"],["📦 Мои заказы","🛠 Админ-панель"]] : [["🛍 Каталог","🛒 Корзина"],["📦 Мои заказы"]]).resize();
 const adminKb = () => Markup.inlineKeyboard([
@@ -75,6 +259,7 @@ const adminKb = () => Markup.inlineKeyboard([
   [Markup.button.callback("📦 Приход / склад","a:stock"),Markup.button.callback("💵 Кассы","a:cash")],
   [Markup.button.callback("📋 Все товары","a:allproducts")],
   [Markup.button.callback("📜 История касс","a:history"),Markup.button.callback("📋 Заказы","a:orders")],
+  [Markup.button.callback("📊 Excel-отчёт","a:excel")],
   [Markup.button.callback("📣 Рассылка","a:broadcast")]
 ]);
 
@@ -293,6 +478,8 @@ bot.on("text",async ctx=>{
   }
 });
 
+bot.action("a:excel",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;await ctx.reply("Формирую Excel-отчёт за сегодня. Файл также сохранится в папке «Отчёты».");try{const r=await sendDailyExcelReport(ctx.from.id);await ctx.reply("Готово: "+r.filePath);}catch(e){console.error("Excel export error:",e);await ctx.reply("Не удалось создать Excel-отчёт: "+e.message);}});
+
 bot.action("a:broadcast",async ctx=>{
   await ctx.answerCbQuery(); if(!admin(ctx.from.id))return;
   await ctx.reply("📣 Рассылка. Выберите получателей:",Markup.inlineKeyboard([
@@ -461,6 +648,7 @@ bot.action(/^cancel:([0-9]+)$/,async ctx=>{
 });
 async function showOrders(ctx){saveUser(ctx);const os=db.prepare("SELECT id,status,final_total,created_at FROM orders WHERE user_id=? ORDER BY id DESC LIMIT 10").all(String(ctx.from.id));if(!os.length)return ctx.reply("У вас пока нет заказов.");await ctx.reply("Ваши заказы:\n"+os.map(o=>"№"+o.id+" — "+o.status+" — "+cash(o.final_total)+" — "+o.created_at).join("\n"));}
 bot.catch(err=>console.error("Ошибка Telegram:",err));
-bot.launch().then(()=>console.log("Продаван запущен. Локальная база:",path.join(DATA_DIR,"prodivan.sqlite"))).catch(err=>{console.error("Не удалось запустить:",err);process.exit(1);});
-process.once("SIGINT",()=>bot.stop("SIGINT"));
-process.once("SIGTERM",()=>bot.stop("SIGTERM"));
+bot.launch().then(()=>{console.log("Продаван запущен. Локальная база:",path.join(DATA_DIR,"prodivan.sqlite"));console.log("Excel-отчёты: папка",REPORTS_DIR,"; ежедневный запуск в 23:55 Europe/Kyiv");}).catch(err=>{console.error("Не удалось запустить:",err);process.exit(1);});
+const reportTimer = setInterval(()=>{scheduledExcelReports().catch(e=>console.error("Планировщик Excel:",e));},15000);
+process.once("SIGINT",()=>{clearInterval(reportTimer);bot.stop("SIGINT");});
+process.once("SIGTERM",()=>{clearInterval(reportTimer);bot.stop("SIGTERM");});
