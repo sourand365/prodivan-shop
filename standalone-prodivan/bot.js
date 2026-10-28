@@ -172,7 +172,7 @@ bot.action(/^add:(\d+)$/,async ctx=>{
   const p=db.prepare("SELECT * FROM products WHERE id=? AND active=1").get(Number(ctx.match[1]));
   if(!p) return ctx.reply("Товар недоступен.");
   const cart=db.prepare("SELECT qty FROM carts WHERE user_id=? AND product_id=?").get(String(ctx.from.id),p.id);
-  if((cart?.qty||0)>=p.stock) return ctx.reply("Больше нет в наличии.");
+  if((cart?.qty||0)>=Math.max(0,Number(p.stock||0)-Number(p.reserved||0))) return ctx.reply("Больше нет свободного остатка.");
   db.prepare(`INSERT INTO carts(user_id,product_id,qty) VALUES(?,?,1) ON CONFLICT(user_id,product_id) DO UPDATE SET qty=qty+1`).run(String(ctx.from.id),p.id);
   await ctx.reply("Добавлено в корзину: "+p.name);
 });
@@ -186,9 +186,9 @@ async function showCart(ctx) {
 bot.action("cartclear",async ctx=>{await ctx.answerCbQuery();db.prepare("DELETE FROM carts WHERE user_id=?").run(String(ctx.from.id));await ctx.reply("Корзина очищена.");});
 bot.action("checkout",async ctx=>{
   await ctx.answerCbQuery();
-  const items=db.prepare("SELECT c.qty,p.name,p.stock FROM carts c JOIN products p ON p.id=c.product_id WHERE c.user_id=?").all(String(ctx.from.id));
+  const items=db.prepare("SELECT c.qty,p.name,p.stock,p.reserved FROM carts c JOIN products p ON p.id=c.product_id WHERE c.user_id=?").all(String(ctx.from.id));
   if(!items.length) return ctx.reply("Корзина пустая.");
-  if(items.some(x=>x.qty>x.stock)) return ctx.reply("Для одного из товаров недостаточно остатка. Проверьте корзину.");
+  if(items.some(x=>x.qty>Math.max(0,x.stock-x.reserved))) return ctx.reply("Для одного из товаров недостаточно свободного остатка. Проверьте корзину.");
   setState(ctx.from.id,{step:"phone"});await ctx.reply("Введите номер телефона:",cancelKb());
 });
 bot.on("text",async ctx=>{
@@ -205,21 +205,30 @@ bot.on("text",async ctx=>{
   if(s.step==="username"){
     if(t.length<2)return ctx.reply("Введите юз (например, @username).");
     const uid=String(ctx.from.id);
-    const items=db.prepare("SELECT c.product_id,c.qty,p.name,p.price,p.stock FROM carts c JOIN products p ON p.id=c.product_id WHERE c.user_id=?").all(uid);
+    const items=db.prepare("SELECT c.product_id,c.qty,p.name,p.price,p.stock,p.reserved FROM carts c JOIN products p ON p.id=c.product_id WHERE c.user_id=?").all(uid);
     if(!items.length){clearState(ctx.from.id);return ctx.reply("Корзина пуста.");}
-    if(items.some(x=>x.qty>x.stock)){clearState(ctx.from.id);return ctx.reply("Остаток изменился. Обновите корзину.");}
+    if(items.some(x=>x.qty>Math.max(0,x.stock-x.reserved))){clearState(ctx.from.id);return ctx.reply("Свободный остаток изменился. Обновите корзину.");}
     const total=items.reduce((sum,x)=>sum+x.qty*x.price,0);
-    const tx=db.transaction(()=>{
-      const res=db.prepare("INSERT INTO orders(user_id,username,customer_name,phone,tg_username,total,final_total) VALUES(?,?,?,?,?,?,?)").run(uid,ctx.from.username||"",ctx.from.first_name||"",s.phone,t,total,total);
-      const oid=Number(res.lastInsertRowid);
-      const ins=db.prepare("INSERT INTO order_items(order_id,product_id,product_name,qty,unit_price) VALUES(?,?,?,?,?)");
-      for(const x of items)ins.run(oid,x.product_id,x.name,x.qty,x.price);
-      db.prepare("DELETE FROM carts WHERE user_id=?").run(uid);return oid;
-    });
-    const oid=tx();clearState(ctx.from.id);
-    await ctx.reply("Заказ №"+oid+" создан. Сумма: "+cash(total),homeKb(ctx.from.id));
-    const msg="🛒 Новый заказ №"+oid+"\nПокупатель: "+esc(ctx.from.first_name||"")+" (@"+esc(ctx.from.username||"нет")+")\nТелефон: "+esc(s.phone)+"\nЮз: "+esc(t)+"\n"+items.map(x=>esc(x.name)+" × "+x.qty+" — "+cash(x.qty*x.price)).join("\n")+"\nИтого: "+cash(total);
-    for(const aid of ADMIN_IDS)try{await bot.telegram.sendMessage(aid,msg,{parse_mode:"HTML",...Markup.inlineKeyboard([[Markup.button.callback("✅ Подтвердить","confirm:"+oid),Markup.button.callback("❌ Отменить","cancel:"+oid)],[Markup.button.callback("↪️ Передать заказ","order:transfer:"+oid)]])});}catch(e){console.error("Admin notification failed",aid,e.message);}
+    let oid;
+    try {
+      oid=db.transaction(()=>{
+        for(const x of items){
+          const r=db.prepare("UPDATE products SET reserved=reserved+? WHERE id=? AND active=1 AND stock-reserved>=?").run(x.qty,x.product_id,x.qty);
+          if(!r.changes) throw new Error("Недостаточно свободного остатка: "+x.name);
+        }
+        const res=db.prepare("INSERT INTO orders(user_id,username,customer_name,phone,tg_username,total,final_total) VALUES(?,?,?,?,?,?,?)").run(uid,ctx.from.username||"",ctx.from.first_name||"",s.phone,t,total,total);
+        const newId=Number(res.lastInsertRowid);
+        const ins=db.prepare("INSERT INTO order_items(order_id,product_id,product_name,qty,unit_price) VALUES(?,?,?,?,?)");
+        for(const x of items)ins.run(newId,x.product_id,x.name,x.qty,x.price);
+        db.prepare("DELETE FROM carts WHERE user_id=?").run(uid);
+        return newId;
+      })();
+    } catch(e) { clearState(ctx.from.id); return ctx.reply("Не удалось оформить заказ: "+e.message); }
+    clearState(ctx.from.id);
+    await ctx.reply("Заказ №"+oid+" создан. Сумма: "+cash(total)+". Товар зарезервирован до подтверждения или отмены.",homeKb(ctx.from.id));
+    const order=db.prepare("SELECT * FROM orders WHERE id=?").get(oid);
+    const msg="🛒 Новый заказ №"+oid+"\nПокупатель: "+esc(ctx.from.first_name||"")+" (@"+esc(ctx.from.username||"нет")+")\nТелефон: "+esc(s.phone)+"\nЮз: "+esc(t)+"\n"+items.map(x=>esc(x.name)+" × "+x.qty+" — "+cash(x.qty*x.price)).join("\n")+"\nИтого: "+cash(total)+"\n\nРезерв создан.";
+    for(const aid of ADMIN_IDS)try{await sendOrderAdminMessage(aid,order,msg);}catch(e){console.error("Admin notification failed",aid,e.message);}
     return;
   }
   if(s.step==="category"){
