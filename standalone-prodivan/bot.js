@@ -286,7 +286,7 @@ bot.on("text",async ctx=>{
   }
   if(s.step==="order_total"){
     const total=Number(t.replace(",","."));if(!Number.isFinite(total)||total<0)return ctx.reply("Введите итоговую сумму заказа, не меньше нуля.");
-    const o=db.prepare("SELECT id FROM orders WHERE id=? AND status='new'").get(s.orderId);if(!o){clearState(ctx.from.id);return ctx.reply("Заказ уже обработан.");}
+    const o=db.prepare("SELECT id FROM orders WHERE id=? AND status='in_progress' AND assigned_admin=?").get(s.orderId,String(ctx.from.id));if(!o){clearState(ctx.from.id);return ctx.reply("Заказ больше не закреплён за вами или уже обработан.");}
     s.total=total;s.step="order_final";return ctx.reply("Подтвердить заказ №"+s.orderId+" на "+cash(total)+"?",Markup.inlineKeyboard([[Markup.button.callback("Да, подтвердить","finalize:"+s.orderId)],[Markup.button.callback("Отмена","finalcancel")]]));
   }
 });
@@ -366,27 +366,97 @@ bot.action("cash:transfer",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.f
 bot.action(/^cash:from:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const from=ctx.match[1];await ctx.reply("На какую кассу перевести?",Markup.inlineKeyboard(ADMIN_IDS.filter(id=>id!==from).map(id=>[Markup.button.callback(ADMINS[id],"cash:to:"+from+":"+id)])));});
 bot.action(/^cash:to:(\d+):(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;setState(ctx.from.id,{step:"transfer_amount",fromId:ctx.match[1],toId:ctx.match[2]});await ctx.reply("Сумма перевода:",cancelKb());});
 bot.action("a:history",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const ms=db.prepare("SELECT m.*,a.admin_name FROM cash_movements m JOIN cash_accounts a ON a.admin_id=m.account_id ORDER BY m.id DESC LIMIT 25").all();if(!ms.length)return ctx.reply("История касс пустая.");await ctx.reply("История касс:\n"+ms.map(m=>"#"+m.id+" "+m.admin_name+" "+m.type+" "+cash(m.amount)+" — "+m.comment+" ("+m.created_at+")").join("\n"));});
-bot.action("a:orders",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const os=db.prepare("SELECT * FROM orders WHERE status='new' ORDER BY id DESC LIMIT 20").all();if(!os.length)return ctx.reply("Новых заказов нет.");for(const o of os){const items=db.prepare("SELECT product_name,qty,unit_price FROM order_items WHERE order_id=?").all(o.id);await ctx.reply("Заказ №"+o.id+"\n"+items.map(i=>i.product_name+" × "+i.qty+" — "+cash(i.qty*i.unit_price)).join("\n")+"\nСумма: "+cash(o.total)+"\nТелефон: "+o.phone+"\nЮз: "+o.tg_username,Markup.inlineKeyboard([[Markup.button.callback("✅ Подтвердить","confirm:"+o.id),Markup.button.callback("❌ Отменить","cancel:"+o.id)],[Markup.button.callback("↪️ Передать заказ","order:transfer:"+o.id)]]));}});
-bot.action(/^order:transfer:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const oid=Number(ctx.match[1]);if(!db.prepare("SELECT id FROM orders WHERE id=? AND status='new'").get(oid))return ctx.reply("Заказ уже обработан.");const targets=ADMIN_IDS.filter(id=>id!==String(ctx.from.id));await ctx.reply("Кому передать заказ №"+oid+"?",Markup.inlineKeyboard(targets.map(id=>[Markup.button.callback(ADMINS[id],"order:transferto:"+oid+":"+id)])));});
-bot.action(/^order:transferto:(\d+):(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const oid=Number(ctx.match[1]),target=ctx.match[2];if(!ADMIN_IDS.includes(target))return ctx.reply("Администратор не найден.");const o=db.prepare("SELECT * FROM orders WHERE id=? AND status='new'").get(oid);if(!o)return ctx.reply("Заказ уже обработан.");try{await bot.telegram.sendMessage(target,"↪️ Вам передан заказ №"+oid+"\nТелефон: "+o.phone+"\nЮз: "+o.tg_username+"\nСумма: "+cash(o.total),Markup.inlineKeyboard([[Markup.button.callback("✅ Подтвердить","confirm:"+oid),Markup.button.callback("❌ Отменить","cancel:"+oid)]]));}catch(e){return ctx.reply("Не удалось передать заказ: "+e.message);}await ctx.reply("Заказ №"+oid+" передан "+ADMINS[target]+".",adminKb());});
-bot.action(/^confirm:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const o=db.prepare("SELECT * FROM orders WHERE id=? AND status='new'").get(Number(ctx.match[1]));if(!o)return ctx.reply("Заказ уже обработан.");setState(ctx.from.id,{step:"order_total",orderId:o.id});await ctx.reply("Сумма заказа по каталогу: "+cash(o.total)+". Введите финальную сумму для покупателя (без скидки — та же сумма).",cancelKb());});
+bot.action("a:orders",async ctx=>{
+  await ctx.answerCbQuery(); if(!admin(ctx.from.id))return;
+  const os=db.prepare("SELECT * FROM orders WHERE status IN ('new','in_progress') ORDER BY id DESC LIMIT 30").all();
+  if(!os.length)return ctx.reply("Активных заказов нет.");
+  for(const o of os){
+    const items=db.prepare("SELECT product_name,qty,unit_price FROM order_items WHERE order_id=?").all(o.id);
+    const owner=o.assigned_admin?("Ответственный: "+(ADMINS[o.assigned_admin]||"неизвестен")):"Не взят в работу";
+    const kb=orderKeyboard(o,ctx.from.id);
+    await ctx.reply("Заказ №"+o.id+"\n"+items.map(i=>i.product_name+" × "+i.qty+" — "+cash(i.qty*i.unit_price)).join("\n")+"\nСумма: "+cash(o.total)+"\nТелефон: "+o.phone+"\nЮз: "+o.tg_username+"\n"+owner,kb||{});
+  }
+});
+bot.action(/^order:take:([0-9]+)$/,async ctx=>{
+  await ctx.answerCbQuery(); if(!admin(ctx.from.id))return;
+  const oid=Number(ctx.match[1]);
+  const r=db.prepare("UPDATE orders SET status='in_progress',assigned_admin=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='new' AND (assigned_admin IS NULL OR assigned_admin='')").run(String(ctx.from.id),oid);
+  if(!r.changes){
+    const o=db.prepare("SELECT * FROM orders WHERE id=?").get(oid);
+    return ctx.reply(o?.assigned_admin?"Заказ уже закреплён за "+(ADMINS[o.assigned_admin]||"другим администратором")+".":"Заказ уже обработан.");
+  }
+  await refreshOrderAdminMessages(oid);
+  await ctx.reply("Заказ №"+oid+" закреплён за вами.",adminKb());
+});
+bot.action(/^order:transfer:([0-9]+)$/,async ctx=>{
+  await ctx.answerCbQuery(); if(!admin(ctx.from.id))return;
+  const oid=Number(ctx.match[1]), o=db.prepare("SELECT * FROM orders WHERE id=?").get(oid);
+  if(!canManageOrder(o,ctx.from.id))return ctx.reply("Управлять этим заказом может только ответственный администратор.");
+  const targets=ADMIN_IDS.filter(id=>id!==String(ctx.from.id));
+  await ctx.reply("Кому передать заказ №"+oid+"?",Markup.inlineKeyboard(targets.map(id=>[Markup.button.callback(ADMINS[id],"order:transferto:"+oid+":"+id)])));
+});
+bot.action(/^order:transferto:([0-9]+):([0-9]+)$/,async ctx=>{
+  await ctx.answerCbQuery(); if(!admin(ctx.from.id))return;
+  const oid=Number(ctx.match[1]), target=String(ctx.match[2]);
+  if(!ADMIN_IDS.includes(target))return ctx.reply("Администратор не найден.");
+  const o=db.prepare("SELECT * FROM orders WHERE id=?").get(oid);
+  if(!canManageOrder(o,ctx.from.id))return ctx.reply("Передать заказ может только ответственный администратор.");
+  if(target===String(ctx.from.id))return ctx.reply("Заказ уже закреплён за вами.");
+  const r=db.prepare("UPDATE orders SET assigned_admin=?,status='in_progress',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='in_progress' AND assigned_admin=?").run(target,oid,String(ctx.from.id));
+  if(!r.changes)return ctx.reply("Не удалось передать заказ: статус изменился.");
+  await refreshOrderAdminMessages(oid);
+  const updated=db.prepare("SELECT * FROM orders WHERE id=?").get(oid);
+  try{await sendOrderAdminMessage(target,updated,"↪️ Вам передан заказ №"+oid+"\nТелефон: "+updated.phone+"\nЮз: "+updated.tg_username+"\nСумма: "+cash(updated.total));}catch(e){console.error("Не удалось уведомить нового ответственного",e.message);}
+  await ctx.reply("Заказ №"+oid+" передан "+ADMINS[target]+".",adminKb());
+});
+bot.action(/^confirm:([0-9]+)$/,async ctx=>{
+  await ctx.answerCbQuery(); if(!admin(ctx.from.id))return;
+  const o=db.prepare("SELECT * FROM orders WHERE id=?").get(Number(ctx.match[1]));
+  if(!canManageOrder(o,ctx.from.id))return ctx.reply(o?.assigned_admin?"Заказом управляет "+(ADMINS[o.assigned_admin]||"другой администратор")+".":"Сначала возьмите заказ в работу.");
+  setState(ctx.from.id,{step:"order_total",orderId:o.id});
+  await ctx.reply("Сумма заказа по каталогу: "+cash(o.total)+". Введите финальную сумму для покупателя (без скидки — та же сумма).",cancelKb());
+});
 bot.action("finalcancel",async ctx=>{await ctx.answerCbQuery();clearState(ctx.from.id);await ctx.reply("Подтверждение отменено.");});
-bot.action(/^finalize:(\d+)$/,async ctx=>{
-  await ctx.answerCbQuery();if(!admin(ctx.from.id))return;
-  const s=getState(ctx.from.id);const oid=Number(ctx.match[1]);if(!s||s.step!=="order_final"||s.orderId!==oid)return ctx.reply("Подтверждение истекло. Откройте заказ заново.");
-  const o=db.prepare("SELECT * FROM orders WHERE id=? AND status='new'").get(oid);if(!o){clearState(ctx.from.id);return ctx.reply("Заказ уже обработан.");}
+bot.action(/^finalize:([0-9]+)$/,async ctx=>{
+  await ctx.answerCbQuery(); if(!admin(ctx.from.id))return;
+  const s=getState(ctx.from.id), oid=Number(ctx.match[1]);
+  if(!s||s.step!=="order_final"||s.orderId!==oid)return ctx.reply("Подтверждение истекло. Откройте заказ заново.");
+  const o=db.prepare("SELECT * FROM orders WHERE id=? AND status='in_progress' AND assigned_admin=?").get(oid,String(ctx.from.id));
+  if(!o){clearState(ctx.from.id);return ctx.reply("Заказ больше не закреплён за вами или уже обработан.");}
   const items=db.prepare("SELECT * FROM order_items WHERE order_id=?").all(oid);
-  try{db.transaction(()=>{
-    for(const i of items){const p=db.prepare("SELECT stock FROM products WHERE id=?").get(i.product_id);if(!p||p.stock<i.qty)throw new Error("Недостаточно остатка: "+i.product_name);}
-    for(const i of items)db.prepare("UPDATE products SET stock=stock-? WHERE id=?").run(i.qty,i.product_id);
-    db.prepare("UPDATE orders SET status='confirmed',final_total=?,confirming_admin=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='new'").run(s.total,String(ctx.from.id),oid);
-    db.prepare("UPDATE cash_accounts SET balance=balance+? WHERE admin_id=?").run(s.total,String(ctx.from.id));
-    db.prepare("INSERT INTO cash_movements(account_id,actor_id,type,amount,comment,related_order) VALUES(?,?,?,?,?,?)").run(String(ctx.from.id),String(ctx.from.id),"sale",s.total,"Оплата заказа №"+oid,oid);
-  })();}catch(e){clearState(ctx.from.id);return ctx.reply("Не удалось подтвердить заказ: "+e.message);}
-  clearState(ctx.from.id);await ctx.reply("Заказ №"+oid+" подтверждён. "+cash(s.total)+" зачислено на кассу "+ADMINS[String(ctx.from.id)]+".",adminKb());
+  try{
+    db.transaction(()=>{
+      for(const i of items){
+        const p=db.prepare("SELECT stock,reserved FROM products WHERE id=?").get(i.product_id);
+        if(!p||p.stock<i.qty||p.reserved<i.qty)throw new Error("Недостаточно товара в резерве: "+i.product_name);
+      }
+      for(const i of items)db.prepare("UPDATE products SET stock=stock-?,reserved=reserved-? WHERE id=?").run(i.qty,i.qty,i.product_id);
+      const changed=db.prepare("UPDATE orders SET status='confirmed',final_total=?,confirming_admin=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='in_progress' AND assigned_admin=?").run(s.total,String(ctx.from.id),oid,String(ctx.from.id));
+      if(!changed.changes)throw new Error("Ответственный или статус заказа изменился.");
+      db.prepare("UPDATE cash_accounts SET balance=balance+? WHERE admin_id=?").run(s.total,String(ctx.from.id));
+      db.prepare("INSERT INTO cash_movements(account_id,actor_id,type,amount,comment,related_order) VALUES(?,?,?,?,?,?)").run(String(ctx.from.id),String(ctx.from.id),"sale",s.total,"Оплата заказа №"+oid,oid);
+    })();
+  }catch(e){clearState(ctx.from.id);return ctx.reply("Не удалось подтвердить заказ: "+e.message);}
+  clearState(ctx.from.id); await refreshOrderAdminMessages(oid);
+  await ctx.reply("Заказ №"+oid+" подтверждён. "+cash(s.total)+" зачислено на кассу "+ADMINS[String(ctx.from.id)]+".",adminKb());
   try{await bot.telegram.sendMessage(o.user_id,"Ваш заказ №"+oid+" подтверждён. Итог: "+cash(s.total));}catch(e){}
 });
-bot.action(/^cancel:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const oid=Number(ctx.match[1]);const r=db.prepare("UPDATE orders SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='new'").run(oid);if(!r.changes)return ctx.reply("Заказ уже обработан.");await ctx.reply("Заказ №"+oid+" отменён; остаток не менялся.");const o=db.prepare("SELECT user_id FROM orders WHERE id=?").get(oid);try{await bot.telegram.sendMessage(o.user_id,"Ваш заказ №"+oid+" отменён.");}catch(e){}});
+bot.action(/^cancel:([0-9]+)$/,async ctx=>{
+  await ctx.answerCbQuery(); if(!admin(ctx.from.id))return;
+  const oid=Number(ctx.match[1]), o=db.prepare("SELECT * FROM orders WHERE id=?").get(Number(ctx.match[1]));
+  if(!canManageOrder(o,ctx.from.id))return ctx.reply(o?.assigned_admin?"Отменить заказ может только ответственный администратор.":"Сначала возьмите заказ в работу.");
+  const items=db.prepare("SELECT product_id,qty FROM order_items WHERE order_id=?").all(oid);
+  const ok=db.transaction(()=>{
+    const r=db.prepare("UPDATE orders SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='in_progress' AND assigned_admin=?").run(oid,String(ctx.from.id));
+    if(!r.changes)return false;
+    for(const i of items)db.prepare("UPDATE products SET reserved=MAX(0,reserved-?) WHERE id=?").run(i.qty,i.product_id);
+    return true;
+  })();
+  if(!ok)return ctx.reply("Заказ уже обработан или передан другому администратору.");
+  await refreshOrderAdminMessages(oid);
+  await ctx.reply("Заказ №"+oid+" отменён. Резерв освобождён; физический остаток не менялся.");
+  try{await bot.telegram.sendMessage(o.user_id,"Ваш заказ №"+oid+" отменён.");}catch(e){}
+});
 async function showOrders(ctx){saveUser(ctx);const os=db.prepare("SELECT id,status,final_total,created_at FROM orders WHERE user_id=? ORDER BY id DESC LIMIT 10").all(String(ctx.from.id));if(!os.length)return ctx.reply("У вас пока нет заказов.");await ctx.reply("Ваши заказы:\n"+os.map(o=>"№"+o.id+" — "+o.status+" — "+cash(o.final_total)+" — "+o.created_at).join("\n"));}
 bot.catch(err=>console.error("Ошибка Telegram:",err));
 bot.launch().then(()=>console.log("Продаван запущен. Локальная база:",path.join(DATA_DIR,"prodivan.sqlite"))).catch(err=>{console.error("Не удалось запустить:",err);process.exit(1);});
