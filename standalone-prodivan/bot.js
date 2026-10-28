@@ -355,9 +355,9 @@ async function showCategoryProducts(ctx, categoryId) {
   return ctx.reply("Категория «"+cat.name+"». Выберите товар по названию:", Markup.inlineKeyboard(rows));
 }
 async function showRootProducts(ctx, rootGroupId) {
-  const products = db.prepare("SELECT p.id,p.name FROM products p JOIN categories c ON c.id=p.category_id WHERE c.root_id=? AND c.active=1 AND p.active=1 ORDER BY p.name").all(rootGroupId);
+  const products = db.prepare("SELECT p.id,p.name,p.description,p.price,p.stock,p.category_id FROM products p JOIN categories c ON c.id=p.category_id WHERE c.root_id=? AND c.active=1 AND p.active=1 ORDER BY p.name").all(rootGroupId);
   if (!products.length) return ctx.reply("В этом разделе пока нет товаров.");
-  return ctx.reply("Товары раздела — выберите название:", Markup.inlineKeyboard(products.map(p => [Markup.button.callback(p.name, "product:"+p.id)])));
+  for (const product of products) await sendProductCard(ctx, product);
 }
 bot.start(async ctx => {
   if(ctx.chat.type !== "private") return ctx.reply("Магазин «Продаван» работает только в личных сообщениях. Откройте бота напрямую: @"+(ctx.botInfo?.username || "bot"),Markup.removeKeyboard());
