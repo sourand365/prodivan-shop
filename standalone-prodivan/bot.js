@@ -336,7 +336,7 @@ async function sendProductCard(ctx, product) {
     }
   }
   await flushPhotos();
-  await ctx.reply("<b>"+esc(product.name)+"</b>\\n"+esc(product.description||"")+"\\nЦена: "+cash(product.price)+"\n"+(Number(product.stock)>0?"В наличии: "+product.stock:"Товар закончился"), {
+  await ctx.reply("<b>"+esc(product.name)+"</b>\n"+esc(product.description||"")+"\nЦена: "+cash(product.price)+"\n"+(Number(product.stock)>0?"В наличии: "+product.stock:"Товар закончился"), {
     parse_mode: "HTML",
     ...Markup.inlineKeyboard([
       [Markup.button.callback("➕ В корзину","add:"+product.id)],
