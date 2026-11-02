@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 $root = [Environment]::GetEnvironmentVariable('GLOBOVETS_DIR')
 if (-not $root) { $root = (Get-Location).Path }
 $root = (Resolve-Path $root).Path
