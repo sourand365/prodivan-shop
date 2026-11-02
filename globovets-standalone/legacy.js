@@ -227,6 +227,8 @@ async function loadState() {
       currentWeek: createEmptyWeek(getWeekKey()),
       archive: [],
       codes: {},
+      nameMarks: {},
+      assignmentHistory: [],
       initializedAt: Date.now()
     };
 
@@ -259,9 +261,9 @@ async function loadState() {
     state.archive = [];
   }
 
-  if (!state.codes) {
-    state.codes = {};
-  }
+  if (!state.codes) state.codes = {};
+  if (!state.nameMarks || typeof state.nameMarks !== "object") state.nameMarks = {};
+  if (!Array.isArray(state.assignmentHistory)) state.assignmentHistory = [];
 
   return state;
 }
@@ -328,6 +330,53 @@ async function ensureCurrentWeek(state) {
 }
 
 
+function getAssignmentBaseName(value) {
+  return String(value || "").replace(/\s*х[23]\s*🔥?$/i, "").trim();
+}
+function getAssignmentMultiplier(value) {
+  const match = String(value || "").match(/х([23])\s*🔥?$/i);
+  return match ? Number(match[1]) : 1;
+}
+function getNameMarkKey(name) {
+  return getAssignmentBaseName(name).toLocaleLowerCase("ru-RU");
+}
+function getNameMarkSuffix(state, name) {
+  const item = (state.nameMarks || {})[getNameMarkKey(name)] || {};
+  return (item.diamond ? " 💎" : "") + (item.gold ? " 🥇" : "");
+}
+function buildPreviousWeekLeaderText(state) {
+  const previousWeek = (state.archive || [])
+    .filter(week => week && week.weekKey && week.weekKey !== state.currentWeek?.weekKey)
+    .sort((a, b) => String(b.weekKey).localeCompare(String(a.weekKey)))[0];
+  if (!previousWeek || !previousWeek.days) return "";
+  const scores = {};
+  for (const day of DAYS) {
+    for (const assignment of previousWeek.days[day.key] || []) {
+      const name = getAssignmentBaseName(assignment);
+      if (!name) continue;
+      const key = name.toLocaleLowerCase("ru-RU");
+      if (!scores[key]) scores[key] = { name, points: 0 };
+      scores[key].name = name;
+      scores[key].points += getAssignmentMultiplier(assignment);
+    }
+  }
+  const rows = Object.values(scores);
+  if (!rows.length) return "";
+  const max = Math.max(...rows.map(row => row.points));
+  const leaders = rows.filter(row => row.points === max);
+  return "\n\n🔥 Главный пидор прошлой недели:\n" +
+    leaders.map(row => "🔥 " + row.name + " — " + row.points + " очков").join("\n");
+}
+function recordAssignmentHistory(state, action, name, dayKey, multiplier = 1) {
+  state.assignmentHistory = Array.isArray(state.assignmentHistory) ? state.assignmentHistory : [];
+  state.assignmentHistory.push({
+    at: new Date().toISOString(),
+    weekKey: state.currentWeek?.weekKey || getWeekKey(),
+    dayKey, name: getAssignmentBaseName(name), multiplier, action
+  });
+  if (state.assignmentHistory.length > 10000) state.assignmentHistory = state.assignmentHistory.slice(-10000);
+}
+
 // ============================================================
 // ТАБЛИЦА
 // ============================================================
@@ -354,7 +403,8 @@ function buildTableText(state) {
       text += ":\n";
 
       people.forEach((person, index) => {
-        text += `  ${index + 1}. ${person}\n`;
+        const baseName = getAssignmentBaseName(person);
+        text += `  ${index + 1}. ${person}${getNameMarkSuffix(state, baseName)}\n`;
       });
     }
 
@@ -362,6 +412,7 @@ function buildTableText(state) {
   }
 
   text += "━━━━━━━━━━━━━━";
+  text += buildPreviousWeekLeaderText(state);
 
   return text;
 }
@@ -720,6 +771,7 @@ bot.command("n", async ctx => {
     }
 
     people.push(name);
+    recordAssignmentHistory(state, "assign", name, dayKey, 1);
 
     state.currentWeek.days[dayKey] =
       people;
@@ -815,6 +867,7 @@ bot.command("u", async ctx => {
     }
 
     const removed = people[index];
+    recordAssignmentHistory(state, "remove", removed, dayKey, getAssignmentMultiplier(removed));
 
     people.splice(index, 1);
 
@@ -1103,6 +1156,7 @@ bot.command("nn", async ctx => {
 
     people[index] =
       `${name} х${multiplier} 🔥`;
+    recordAssignmentHistory(state, "multiplier", name, dayKey, multiplier);
 
     state.currentWeek.days[dayKey] =
       people;
@@ -1127,6 +1181,45 @@ bot.command("nn", async ctx => {
       String(error.message || error)
     );
   }
+});
+
+
+// /UU — снять X2/X3 и вернуть обычное назначение X1.
+bot.command("uu", async ctx => {
+  if (!isAdmin(ctx)) return ctx.reply("Нет доступа ❌");
+  const args = String(ctx.message.text || "").trim().split(/\s+/).slice(1);
+  if (!args.length) return ctx.reply("Использование: /uu Имя или /uu пт Имя");
+  let dayKey = getDayKey(), nameParts = args;
+  const selectedDay = getDayByInput(args[0]);
+  if (selectedDay) { dayKey = selectedDay.key; nameParts = args.slice(1); }
+  const name = nameParts.join(" ").trim();
+  if (!name) return ctx.reply("Укажи имя ❌");
+  const state = await loadState();
+  await ensureCurrentWeek(state);
+  const people = state.currentWeek.days[dayKey] || [];
+  const index = people.findIndex(person => getAssignmentBaseName(person).toLocaleLowerCase("ru-RU") === name.toLocaleLowerCase("ru-RU"));
+  if (index < 0 || getAssignmentMultiplier(people[index]) === 1) return ctx.reply("Этот пидор пока не X2");
+  people[index] = getAssignmentBaseName(people[index]);
+  state.currentWeek.days[dayKey] = people;
+  recordAssignmentHistory(state, "multiplier_removed", name, dayKey, 1);
+  await saveState(state);
+  return ctx.reply("✅ Множитель снят. " + name + " снова X1.");
+});
+
+bot.hears(/^(диамант|золото)\s*([+-])\s*(.+)$/iu, async ctx => {
+  if (!isAdmin(ctx)) return ctx.reply("Нет доступа ❌");
+  const kind = ctx.match[1].toLocaleLowerCase("ru-RU") === "диамант" ? "diamond" : "gold";
+  const sign = ctx.match[2], name = ctx.match[3].trim();
+  if (!name) return ctx.reply("Укажи имя ❌");
+  const state = await loadState();
+  state.nameMarks = state.nameMarks || {};
+  const key = getNameMarkKey(name), marks = state.nameMarks[key] || {};
+  marks[kind] = sign === "+";
+  if (!marks.diamond && !marks.gold) delete state.nameMarks[key];
+  else state.nameMarks[key] = marks;
+  await saveState(state);
+  const label = kind === "diamond" ? "💎 Диамант" : "🥇 Золото";
+  return ctx.reply((sign === "+" ? label + " отмечен: " : label + " снят: ") + name);
 });
 
 
