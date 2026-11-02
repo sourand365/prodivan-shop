@@ -1501,103 +1501,64 @@ bot.hears(
 
 
 // ============================================================
-// 🎭 ВЫБОР РЕАКЦИИ ПО СУММЕ ЧАЕВЫХ
+// 🎭 СТИКЕРЫ ЧАЕВЫХ — выбор по сумме конкретного начисления
 // ============================================================
-
+const TIP_STICKER_RANGES = [
+[1,1,"CAACAgQAAxkBAAIrzmrmauvdC_vJiljT4rv7RfPNfmVsAAKiCwACq7LpU0lmBn_52qa_PQQ"],
+[2,2,"CAACAgIAAxkBAAIr72rnxE1itmMV88hID589jvRkZopJAAKVAAOQZIYLxqakSnW74C49BA"],
+[3,3,"CAACAgQAAxkBAAIr0mrmazvH6h6db2F0e1lCpzb5jqiMAAJnEAACFNeBUPE1247mBL8PPQQ"],
+[4,4,"CAACAgIAAxkBAAIr1Grma2N4ZkWtMRSLIxmkw2mgPcUtAAIHAAOAPvIV5H90S092L889BA"],
+[5,5,"CAACAgQAAxkBAAIr1mrma7Kx58OWdoXbyv1CE8OO_glnAAKnFAACkPwpUMKbDybjJckqPQQ"],
+[6,6,"CAACAgIAAxkBAAIr2GrmbSMTz2_cwoi8psXjaDozuwABfQACoVoAAkqHqEqMypnnrdqUnT0E"],
+[7,7,"CAACAgIAAxkBAAIr2mrmban0akn2tL65PTrdqqeK-EMfAAJZHAACBD0ISninedQLKx0ePQQ"],
+[8,8,"CAACAgQAAxkBAAIr32rmcX9JsRt9DMygO9sVFzd0u4gUAAImFQACOFWpU-V6QhbRUzwiPQQ"],
+[9,9,"CAACAgIAAxkBAAIr4WrmcbIvDz4ySBPK60cCmiwdpAEBAAIVAgACLGD1HOXzD7uWTW30PQQ"],
+[10,10,"CAACAgIAAxkBAAIr42rmcpsjc59LcXXXg-eGbO66iRiVAAJhAQACLGD1HCMnhCIMjO3wPQQ"],
+[11,15,"CAACAgIAAxkBAAIr5Wrm7Na2EEVYeusEn5i25KMLfQ3nAAIxZgAC0gThS_8fRUnfX3y5PQQ"],
+[16,19,"CAACAgQAAxkBAAIr62rnxBC3B7-z4JujRdgDNLYiGIeHAALuEwACHEypUzesPey4sgEqPQQ"],
+[20,20,"CAACAgIAAxkBAAIr7WrnxCmKLKh2rymWS9Y_ptH9pLZgAALUAAPlnj8XK3iXqAZigcQ9BA"],
+[21,21,"CAACAgIAAxkBAAIr8WrnxIC9pbXEqx8hkyOHlwOO1XhHAAJBXAACuQrYS2dDOxEmlqvtPQQ"],
+[22,26,"CAACAgQAAxkBAAIr82rnxK_8nSj_VnTZN4mGH6y2AkyXAALcFQACE3HxUbaiwwuBYGtXPQQ"],
+[27,29,"CAACAgIAAxkBAAIr9WrnxPEehVxWndFuca9eSaAYJd5SAALyXgACKAHIS0Fty0W3oEwoPQQ"],
+[30,30,"CAACAgIAAxkBAAIsJWrny5Jv4FYKKONwKSxBubYB1lb4AAIdAAMHsCEQhMwWticEkDA9BA"],
+[31,36,"CAACAgIAAxkBAAIr92rnxTHY17DLpR8gZHFHE3WnpZncAAI2AAOcV8A0u-ZjVjnFW8Q9BA"],
+[37,37,"CAACAgQAAxkBAAIr-WrnxVa_9kdDyn6ekHHH_0nmb1hPAAJBEAACLKlAUJN8TrilxB5kPQQ"],
+[38,40,"CAACAgIAAxkBAAIr-2rnxZypdf2hwCi5rQtWuBwQIcqzAAIMAAOAPvIVrlWJv2ZYxOc9BA"],
+[41,43,"CAACAgIAAxkBAAIr_WrnxcMNYMKizfujDfja84Wu6c_rAAKGAAOcV8A0l9sMnDPCN5A9BA"],
+[44,46,"CAACAgIAAxkBAAIr_2rnxeBulta_zrjrgLFWG-cjLXOZAAKEAAOcV8A0Hes_5dP2xAQ9BA"],
+[47,49,"CAACAgIAAxkBAAIsAWrnxg-mNi6wOhCzsvIY-8MiwP-OAAKOAAOcV8A0PGcvVIKMzlk9BA"],
+[50,50,"CAACAgIAAxkBAAIsA2rnxi0LsNuqlJY4wkK7QfJzWvkKAAJ6AANIQhcVkUxvCvE2SYg9BA"],
+[51,54,"CAACAgIAAxkBAAIsBWrnxkrHOOhw3jPDSC980z7fOJP1AAJDAAOcV8A01g6lY6CUgMI9BA"],
+[55,58,"CAACAgIAAxkBAAIsB2rnxm9CuSfshTYWsFWDMgMoeqvlAAJQAAOcV8A0HHLjtbLtrco9BA"],
+[59,66,"CAACAgIAAxkBAAIsCWrnxtzdZ9xkxjM1GU1RwNhkjMX8AAIqGQACYvEAAUpncy5sB-Pfwj0E"],
+[67,67,"CAACAgIAAxkBAAIsDWrnx1w2OKYjmXHLN6SPnb4H_FwRAAJfewACzB4QSV6WhTABdDCBPQQ"],
+[68,68,"CAACAgIAAxkBAAIsC2rnxymjVSaSEVAFe6ozcKYx3LnlAAJvAAOAAAGnEaLFNZToHb8nPQQ"],
+[69,69,"CAACAgIAAxkBAAIsD2rnx3NRMV_p4xMjonUKdCSruGv7AAKtTgACn5MRSjAlpjTadUbqPQQ"],
+[70,73,"CAACAgIAAxkBAAIsEWrnx6f5ERRdM4JUaCYgvpA-8za1AAItAAMHsCEQ1VCDsRebZpI9BA"],
+[74,76,"CAACAgIAAxkBAAIsFWrnyd_dFgAB6JkDtK2dSUPJgkzDDQACqGQAAulWeEmugXYXRewR1j0E"],
+[77,77,"CAACAgIAAxkBAAIsE2rnx8zNjaFRwLZqN8Jlr5FRK2BnAAJ5jQACQuWYSFHeSXS_HTPfPQQ"],
+[78,81,"CAACAgIAAxkBAAIsF2rnygTa9IX3vZ2ogO_warHP9d8DAAKHAAPww8AOEMoKuL2QI4Y9BA"],
+[82,84,"CAACAgIAAxkBAAIsI2rny1KTWZlXE36vXUsyw4HAA1EwAALQOgACdhxxS4t_1I79WEC3PQQ"],
+[85,89,"CAACAgIAAxkBAAIsJ2rny5c_Hz3BfsNuTUbOHS-twl-NAAIcAAMHsCEQbZ9FU7Fg1Aw9BA"],
+[90,93,"CAACAgIAAxkBAAIsIWrnyyfq4pJJ1slgNQABepJTeFvx3AACJgEAAgFcygl8FyQ1L2HsSz0E"],
+[94,97,"CAACAgIAAxkBAAIsGWrnyld93Iy7JV11q7MlBpW4_JihAAKkOQACqeRxSxBqKfWfUpCfPQQ"],
+[98,99,"CAACAgIAAxkBAAIsHWrnytN4qMDZk6tqc4RGUJpfegEoAAKAAAOcV8A0DeRC9aeg01Q9BA"],
+[100,100,"CAACAgIAAxkBAAIsKWrny_mnXizCPMlJ8ZkZcJd0HNW1AALLFAACB-yZSaoLHHPxfN9kPQQ"]
+];
+const TIP_STICKERS_OVER_100 = [
+"CAACAgIAAxkBAAIsG2rnynHijSH87xLVcX5hfOb3weguAAKjAAPww8AOxkl6S_6sZLA9BA",
+"CAACAgIAAxkBAAIsK2rnzBsF9afJESW3ILiatU88Wz3-AAIjbQACRjiISl_-j6h0uIzrPQQ"
+];
 function tipMemeGetReaction(amount) {
-  if (!Number.isInteger(amount) || amount <= 0) {
-    return null;
-  }
-
-  if (amount >= 1 && amount <= 19) {
-    return {
-      type: "text",
-      value: "Окак"
-    };
-  }
-
-  if (amount === 20) {
-    return {
-      type: "sticker",
-      value: "CAACAgIAAxkBAAEHhFtqyl0FlOGmVUemGaql6sk7bp8NDwACeQADSEIXFSOp6962d-IkPQQ"
-    };
-  }
-
-  if (amount >= 21 && amount <= 49) {
-    return {
-      type: "text",
-      value: "Ебать ты пидарас"
-    };
-  }
-
-  if (amount === 50) {
-    return {
-      type: "sticker",
-      value: "CAACAgIAAxkBAAEHhF1qyl5FZPY11Bg3gn03-yMnOSvrkQACegADSEIXFZFMbwrxNkmIPQQ"
-    };
-  }
-
-  if (amount >= 51 && amount <= 66) {
-    return {
-      type: "text",
-      value: "Пидарас ПИДАРАСИНА"
-    };
-  }
-
-  if (amount === 67) {
-    return {
-      type: "sticker",
-      value: "CAACAgIAAxkBAAEHhGZqyl7_NrUmvHGF1wE8ydD1PQrPHgAC4FAAAibK-EhrJ_etcJUkIj0E"
-    };
-  }
-
-  if (amount === 68) {
-    return {
-      type: "text",
-      value: "Пидарас ПИДАРАСИНА"
-    };
-  }
-
-  if (amount === 69) {
-    return {
-      type: "sticker",
-      value: "CAACAgIAAxkBAAEHhYBqyq_5Dru31yUFuHkyHJbiuKiQ6AACNVcAAlBikEgtHLdRiZqfiD0E"
-    };
-  }
-
-  if (amount >= 70 && amount <= 98) {
-    return {
-      type: "sticker",
-      value: "CAACAgIAAxkBAAEHh9xqy2KhfYOEpZqtH4UgjIq58f0R8QAC8FwAAlij4EtZh7WuEivoiT0E"
-    };
-  }
-
-  if (amount === 99) {
-    return {
-      type: "sticker",
-      value: "CAACAgIAAxkBAAEHh-Bqy2K4FmBeQfjVLiU1esPnYIVQlQACZhoAAvHiWUt0fLpq5fnd2j0E"
-    };
-  }
-
-  if (amount === 100) {
-    return {
-      type: "sticker",
-      value: "CAACAgIAAxkBAAEHh-Rqy2Lg1mLSmeCtcYvSxEaDaPMCggAC0AAD5Z4_F2AxcRsPXHqcPQQ"
-    };
-  }
-
-  if (amount > 100) {
-    return {
-      type: "sticker",
-      value: "CAACAgIAAxkBAAEHh-Zqy2MgQI4v3fVaYA4anZrfXx3b_gACI20AAkY4iEpf_o-odLiM6z0E"
-    };
-  }
-
-  return null;
+  if (!Number.isInteger(amount) || amount <= 0) return null;
+  if (amount > 100) return { type: "sticker", value: TIP_STICKERS_OVER_100[Math.floor(Math.random() * 2)] };
+  const found = TIP_STICKER_RANGES.find(([min, max]) => amount >= min && amount <= max);
+  return found ? { type: "sticker", value: found[2] } : null;
 }
 
 
 // ============================================================
+// ☕ ЧАЙ + СУММА// ============================================================
 // ☕ ЧАЙ + СУММА
 //
 // Этот обработчик также сохраняет чаевые в старую статистику.
@@ -1606,7 +1567,7 @@ function tipMemeGetReaction(amount) {
 // ============================================================
 
 bot.hears(
-  /^\s*чай\s*\+\s*(\d+(?:[.,]\d+)?)\s*$/i,
+  /^\s*чай\s*\+?\s*(\d+)\s*$/i,
   async ctx => {
     try {
       const amount = Number(
@@ -2333,97 +2294,7 @@ function getTipsDateKeyFromInput(input) {
   ].join("-");
 }
 
-// ============================================================
-// ЧАЙ +50
-// ============================================================
-
-bot.hears(
-  /^чай\s*\+\s*(\d+(?:[.,]\d+)?)$/i,
-  async ctx => {
-    try {
-      const amount =
-        Number(
-          ctx.match[1]
-            .replace(",", ".")
-        );
-
-      if (
-        !Number.isFinite(amount) ||
-        !Number.isInteger(amount) ||
-        amount <= 0
-      ) {
-        await ctx.reply(
-          "Сумма должна быть целым числом больше 0 ❌"
-        );
-
-        return;
-      }
-
-      if (
-        amount > 100000
-      ) {
-        await ctx.reply(
-          "Слишком большая сумма ❌"
-        );
-
-        return;
-      }
-
-      const state =
-        await loadTipsState();
-
-      await ensureTipsDay(
-        state
-      );
-
-      const userId =
-        String(ctx.from.id);
-
-      const name =
-        getTelegramDisplayName(
-          ctx
-        );
-
-      if (
-        !state.today[userId]
-      ) {
-        state.today[userId] = {
-          name,
-          amount: 0
-        };
-      }
-
-      state.today[userId].name =
-        name;
-
-      state.today[userId].amount +=
-        amount;
-
-      await saveTipsState(
-        state
-      );
-
-      const total =
-        state.today[userId]
-          .amount;
-
-      await ctx.reply(
-        `☕ ${name} +${amount} грн\n` +
-        `💰 Всего сегодня: ${total} грн`
-      );
-    } catch (error) {
-      console.error(
-        "TIPS ADD ERROR:",
-        error
-      );
-
-      await ctx.reply(
-        "Ошибка добавления чаевых ❌\n\n" +
-        String(error.message || error)
-      );
-    }
-  }
-);
+// Дублирующий обработчик «Чай + сумма» удалён: начисление выполняет единый обработчик выше.
 
 
 // ============================================================
@@ -4073,263 +3944,76 @@ bot.hears(/^болт$/i, async (ctx) => {
 // КОНЕЦ ДОПОЛНИТЕЛЬНОГО БЛОКА
 // ============================================================
 // ============================================================
-// БРОНИРОВАНИЕ СЕССИЙ — АВТОМАТИЧЕСКОЕ УВЕДОМЛЕНИЕ
-// Отдельный блок — вставить в самый низ файла
+// ЧЕТВЕРГ: НАПОМИНАНИЯ «ДИАМАНТ» И «ЗОЛОТО»
 // ============================================================
-
 const SESSION_BOOKING_DB_COLLECTION = "courier-session-booking";
 const SESSION_BOOKING_DB_KEY = "main";
-
-const SESSION_BOOKING_TEXT =
-  '🚨🔥🚨🔥🚨\n\n' +
-  '<b>БРОНИРОВАНИЕ СЕССИЙ НАЧАЛОСЬ</b>\n\n' +
-  '📢 @Invisiibllee\n' +
-  '📢 @Aleksandr111020\n' +
-  '📢 @smurf1108\n\n' +
-  '⚡🏍️🔥 Бронируем сессии! 🔥🏍️⚡\n\n' +
-  '🚨🔥🚨🔥🚨';
-
-
-// ------------------------------------------------------------
-// Получаем текущее время по Киеву
-// ------------------------------------------------------------
+const SESSION_REMINDERS = [
+  { key: "diamond", hour: 13, minute: 59, text: "💎 ДИАМАНТЫ! Пора набирать сессии! Не упускаем возможность заработать — подключаемся и активно работаем! 💪" },
+  { key: "gold", hour: 14, minute: 29, text: "🥇 ЗОЛОТО! Время набирать сессии! Показываем результат, забираем свои показатели и не сбавляем обороты! 🔥" }
+];
 
 function getKyivDateTimeForSessions() {
-  const now = new Date();
-
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Europe/Kyiv',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false
-  }).formatToParts(now);
-
-  const result = {};
-
-  for (const part of parts) {
-    if (part.type !== 'literal') {
-      result[part.type] = part.value;
-    }
-  }
-
-  return {
-    year: Number(result.year),
-    month: Number(result.month),
-    day: Number(result.day),
-    hour: Number(result.hour),
-    minute: Number(result.minute),
-    second: Number(result.second)
-  };
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Kyiv", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
+  }).formatToParts(new Date());
+  const values = {};
+  for (const part of parts) if (part.type !== "literal") values[part.type] = part.value;
+  return { year: Number(values.year), month: Number(values.month), day: Number(values.day), hour: Number(values.hour), minute: Number(values.minute), second: Number(values.second) };
 }
-
-
-// ------------------------------------------------------------
-// Ключ текущей даты по Киеву
-// ------------------------------------------------------------
-
 function getKyivDateKeyForSessions() {
   const t = getKyivDateTimeForSessions();
-
-  return (
-    String(t.year) +
-    '-' +
-    String(t.month).padStart(2, '0') +
-    '-' +
-    String(t.day).padStart(2, '0')
-  );
+  return String(t.year) + "-" + String(t.month).padStart(2, "0") + "-" + String(t.day).padStart(2, "0");
 }
-
-
-// ------------------------------------------------------------
-// Запоминаем последний групповой чат
-// ------------------------------------------------------------
-
 async function rememberLastGroupForSessions(ctx) {
   try {
-    if (!ctx || !ctx.chat) return;
-
-    const chatType = ctx.chat.type;
-
-    // Только группы и супергруппы
-    if (chatType !== 'group' && chatType !== 'supergroup') {
-      return;
-    }
-
-    const chatId = ctx.chat.id;
-
-    const existing = await db
-      .collection(SESSION_BOOKING_DB_COLLECTION)
-      .findOne({ key: SESSION_BOOKING_DB_KEY });
-
-    const oldData = existing && existing.data
-      ? existing.data
-      : {};
-
-    const newData = {
-      ...oldData,
-      lastGroupChatId: chatId,
-      lastGroupChatTitle: ctx.chat.title || '',
-      updatedAt: new Date().toISOString()
-    };
-
-    await db
-      .collection(SESSION_BOOKING_DB_COLLECTION)
-      .updateOne(
-        { key: SESSION_BOOKING_DB_KEY },
-        {
-          $set: {
-            key: SESSION_BOOKING_DB_KEY,
-            data: newData,
-            updatedAt: new Date()
-          }
-        },
-        { upsert: true }
-      );
-
-  } catch (error) {
-    console.error(
-      'Ошибка сохранения последнего группового чата:',
-      error.message
+    if (!ctx?.chat || (ctx.chat.type !== "group" && ctx.chat.type !== "supergroup")) return;
+    const old = await db.collection(SESSION_BOOKING_DB_COLLECTION).findOne({ key: SESSION_BOOKING_DB_KEY });
+    const data = { ...(old?.data || {}), lastGroupChatId: ctx.chat.id, lastGroupChatTitle: ctx.chat.title || "", updatedAt: new Date().toISOString() };
+    await db.collection(SESSION_BOOKING_DB_COLLECTION).updateOne(
+      { key: SESSION_BOOKING_DB_KEY },
+      { $set: { key: SESSION_BOOKING_DB_KEY, data, updatedAt: new Date() } },
+      { upsert: true }
     );
+  } catch (error) {
+    console.error("Ошибка сохранения группового чата для напоминаний:", error.message);
   }
 }
-
-
-// ------------------------------------------------------------
-// Проверяем и отправляем сообщение о бронировании
-// ------------------------------------------------------------
-
 async function checkSessionBookingNotification() {
   try {
-    const time = getKyivDateTimeForSessions();
-
-    // 4 = четверг
-    // JS: 0 воскресенье, 1 понедельник ... 4 четверг
-    const jsDay = new Date(
-      Date.UTC(
-        time.year,
-        time.month - 1,
-        time.day
-      )
-    ).getUTCDay();
-
-    if (jsDay !== 4) {
-      return;
-    }
-
-    // Окно 14:00–14:00:59
-    if (time.hour !== 14 || time.minute !== 0) {
-      return;
-    }
-
+    const t = getKyivDateTimeForSessions();
+    if (new Date(Date.UTC(t.year, t.month - 1, t.day)).getUTCDay() !== 4) return;
     const dateKey = getKyivDateKeyForSessions();
-
-    const existing = await db
-      .collection(SESSION_BOOKING_DB_COLLECTION)
-      .findOne({ key: SESSION_BOOKING_DB_KEY });
-
-    const data = existing && existing.data
-      ? existing.data
-      : {};
-
-    // Если уже отправляли сегодня — ничего не делаем
-    if (data.lastSentDate === dateKey) {
-      return;
-    }
-
-    const chatId = data.lastGroupChatId;
-
-    // Если бот ещё не знает ни одного группового чата
-    if (!chatId) {
-      console.log(
-        'Бронирование: групповой чат ещё не сохранён.'
-      );
-      return;
-    }
-
-    await bot.telegram.sendMessage(
-      chatId,
-      SESSION_BOOKING_TEXT,
-      {
-        parse_mode: 'HTML'
-      }
-    );
-
-    // Запоминаем дату отправки
-    await db
-      .collection(SESSION_BOOKING_DB_COLLECTION)
-      .updateOne(
+    const old = await db.collection(SESSION_BOOKING_DB_COLLECTION).findOne({ key: SESSION_BOOKING_DB_KEY });
+    const data = old?.data || {};
+    if (!data.lastGroupChatId) return;
+    for (const reminder of SESSION_REMINDERS) {
+      if (t.hour !== reminder.hour || t.minute !== reminder.minute) continue;
+      const sentKey = "lastSent_" + reminder.key;
+      if (data[sentKey] === dateKey) continue;
+      await bot.telegram.sendMessage(data.lastGroupChatId, reminder.text);
+      data[sentKey] = dateKey;
+      data.updatedAt = new Date().toISOString();
+      await db.collection(SESSION_BOOKING_DB_COLLECTION).updateOne(
         { key: SESSION_BOOKING_DB_KEY },
-        {
-          $set: {
-            key: SESSION_BOOKING_DB_KEY,
-            data: {
-              ...data,
-              lastGroupChatId: chatId,
-              lastSentDate: dateKey,
-              updatedAt: new Date().toISOString()
-            },
-            updatedAt: new Date()
-          }
-        },
+        { $set: { key: SESSION_BOOKING_DB_KEY, data, updatedAt: new Date() } },
         { upsert: true }
       );
-
-    console.log(
-      `Бронирование сессий отправлено в чат ${chatId}`
-    );
-
+      console.log("Напоминание " + reminder.key + " отправлено в чат " + data.lastGroupChatId);
+    }
   } catch (error) {
-    console.error(
-      'Ошибка автоматического бронирования:',
-      error.message
-    );
+    console.error("Ошибка автоматических напоминаний:", error.message);
   }
 }
-
-
-// ------------------------------------------------------------
-// Запоминаем последний групповой чат на любом сообщении
-// ------------------------------------------------------------
-
 bot.use(async (ctx, next) => {
-  try {
-    await rememberLastGroupForSessions(ctx);
-  } catch (error) {
-    console.error(
-      'Ошибка rememberLastGroupForSessions:',
-      error.message
-    );
-  }
-
+  await rememberLastGroupForSessions(ctx);
   return next();
 });
+setInterval(checkSessionBookingNotification, 15 * 1000);
+setTimeout(checkSessionBookingNotification, 5000);
 
 
-// ------------------------------------------------------------
-// Проверка времени каждую минуту
-// ------------------------------------------------------------
-
-setInterval(async () => {
-  await checkSessionBookingNotification();
-}, 60 * 1000);
-
-
-// ------------------------------------------------------------
-// Дополнительная проверка сразу после запуска бота
-// ------------------------------------------------------------
-
-setTimeout(async () => {
-  await checkSessionBookingNotification();
-}, 5000);
-
-
-// ============================================================
-// КОНЕЦ БЛОКА БРОНИРОВАНИЯ СЕССИЙ
 // ============================================================
 // ВОЗДУШНАЯ ТРЕВОГА
 // ТР  — тревога
@@ -9949,6 +9633,20 @@ bot.command(
 // ============================================================
 // КОНЕЦ ФИНАЛЬНОГО БЛОКА
 // ============================================================
+bot.on("sticker", async ctx => {
+  try {
+    if (ctx.message?.sticker?.file_id === "CAACAgIAAxkBAAIrxmrl6NLayfJGA2h6Bs4sUvTHFvzMAAIjbQACRjiISl_-j6h0uIzrPQQ") {
+      await ctx.replyWithSticker(
+        "CAACAgIAAxkBAAIryGrl6Oala5rt8FOSbohAE9_PHY4WAAKPogACVb0wSomNG0IFRJ3uPQQ",
+        { reply_to_message_id: ctx.message.message_id }
+      );
+    }
+  } catch (error) {
+    console.error("Ошибка ответного стикера:", error);
+  }
+});
+
+
 // ============================================================
 // МЕМЫ ПО КЛЮЧЕВЫМ СЛОВАМ
 // Стикер выбирается случайно, если вариантов несколько
