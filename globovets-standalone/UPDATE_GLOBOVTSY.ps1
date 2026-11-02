@@ -4,6 +4,7 @@ if (-not $root) { $root = (Get-Location).Path }
 $root = (Resolve-Path $root).Path
 Write-Host ''
 Write-Host '=== ОБНОВЛЕНИЕ ГЛОБОВЦЕВ ===' -ForegroundColor Cyan
+Read-Host 'Сначала останови бота (Ctrl+C в его окне), затем нажми Enter'
 if (-not (Test-Path (Join-Path $root 'package.json')) -or -not (Test-Path (Join-Path $root 'index.js'))) {
   $entered = Read-Host 'Укажи полный путь к папке globovets-standalone'
   if (-not $entered -or -not (Test-Path (Join-Path $entered 'package.json'))) { throw 'Папка проекта не найдена.' }
@@ -18,6 +19,7 @@ New-Item -ItemType Directory -Path $backup -Force | Out-Null
 Write-Host 'Создаю резервную копию проекта...' -ForegroundColor Yellow
 & robocopy $root $backup /E /XD (Join-Path $root 'node_modules') (Join-Path $root '.git') (Join-Path $root 'data\backups') /R:1 /W:1 /NFL /NDL /NJH /NJS | Out-Null
 if ($LASTEXITCODE -ge 8) { throw 'Не удалось создать резервную копию. Обновление отменено.' }
+$hadLock = Test-Path (Join-Path $root 'package-lock.json')
 $temp = Join-Path $env:TEMP ("globovets-update-" + $stamp)
 New-Item -ItemType Directory -Path $temp -Force | Out-Null
 $base = 'https://raw.githubusercontent.com/sourand365/prodivan-shop/standalone/globovets-local-sqlite/globovets-standalone/'
@@ -50,6 +52,9 @@ try {
     $saved = Join-Path $backup $file
     if (Test-Path $saved) { Copy-Item $saved (Join-Path $root $file) -Force }
   }
+  $savedLock = Join-Path $backup 'package-lock.json'
+  if ($hadLock -and (Test-Path $savedLock)) { Copy-Item $savedLock (Join-Path $root 'package-lock.json') -Force }
+  elseif (-not $hadLock) { Remove-Item (Join-Path $root 'package-lock.json') -Force -ErrorAction SilentlyContinue }
   Write-Host 'Исходные index.js, legacy.js и package.json восстановлены.'
   Write-Host 'База SQLite и .env не изменялись.'
   exit 1
