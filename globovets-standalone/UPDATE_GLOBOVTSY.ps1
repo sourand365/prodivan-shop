@@ -17,7 +17,8 @@ $backupRoot = Join-Path (Split-Path $root -Parent) ("globovets-backup-" + $stamp
 $backup = Join-Path $backupRoot 'project'
 New-Item -ItemType Directory -Path $backup -Force | Out-Null
 Write-Host 'Создаю резервную копию проекта...' -ForegroundColor Yellow
-& robocopy $root $backup /E /XD (Join-Path $root 'node_modules') (Join-Path $root '.git') (Join-Path $root 'data\backups') /R:1 /W:1 /NFL /NDL /NJH /NJS | Out-Null
+$exclude = @((Join-Path $root 'node_modules'), (Join-Path $root '.git'), (Join-Path $root 'data\backups'))
+& robocopy $root $backup /E /XD $exclude /R:1 /W:1 /NFL /NDL /NJH /NJS | Out-Null
 if ($LASTEXITCODE -ge 8) { throw 'Не удалось создать резервную копию. Обновление отменено.' }
 $hadLock = Test-Path (Join-Path $root 'package-lock.json')
 $temp = Join-Path $env:TEMP ("globovets-update-" + $stamp)
