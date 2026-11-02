@@ -8,6 +8,7 @@ on:
       - 'globovets-standalone/index.js'
       - 'globovets-standalone/legacy.js'
       - 'globovets-standalone/package.json'
+      - '.github/workflows/globovets-syntax.yml'
   workflow_dispatch:
 
 jobs:
