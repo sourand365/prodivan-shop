@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS stock_movements(id INTEGER PRIMARY KEY AUTOINCREMENT,
 CREATE TABLE IF NOT EXISTS chat_targets(chat_id TEXT PRIMARY KEY, chat_type TEXT NOT NULL, title TEXT DEFAULT '', active INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE IF NOT EXISTS product_media(id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER NOT NULL, media_type TEXT NOT NULL, file_id TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0, FOREIGN KEY(product_id) REFERENCES products(id));
 CREATE TABLE IF NOT EXISTS order_admin_messages(order_id INTEGER NOT NULL, admin_id TEXT NOT NULL, chat_id TEXT NOT NULL, message_id INTEGER NOT NULL, PRIMARY KEY(order_id,admin_id));
+CREATE TABLE IF NOT EXISTS expected_invoices(id INTEGER PRIMARY KEY AUTOINCREMENT, status TEXT NOT NULL DEFAULT 'draft', created_by TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, confirmed_by TEXT DEFAULT '', confirmed_at TEXT DEFAULT '');
+CREATE TABLE IF NOT EXISTS expected_invoice_items(id INTEGER PRIMARY KEY AUTOINCREMENT, invoice_id INTEGER NOT NULL, product_id INTEGER NOT NULL, product_name TEXT NOT NULL, qty INTEGER NOT NULL, unit_cost REAL NOT NULL, unit_price REAL NOT NULL, FOREIGN KEY(invoice_id) REFERENCES expected_invoices(id) ON DELETE CASCADE, FOREIGN KEY(product_id) REFERENCES products(id));
 `);
 const categoryCols = db.prepare("PRAGMA table_info(categories)").all().map(c => c.name); if (!categoryCols.includes("active")) db.exec("ALTER TABLE categories ADD COLUMN active INTEGER NOT NULL DEFAULT 1");
 const productCols = db.prepare("PRAGMA table_info(products)").all().map(c => c.name); if (!productCols.includes("reserved")) db.exec("ALTER TABLE products ADD COLUMN reserved INTEGER NOT NULL DEFAULT 0");
@@ -151,6 +153,13 @@ async function createExcelReport(type, today = kyivDate(new Date())) {
     Свободно: Math.max(0, Number(p.stock || 0) - Number(p.reserved || 0)),
     Активен: p.active ? "Да" : "Нет", Описание: p.description || ""
   }));
+  const stockPurchase = products.reduce((sum,p)=>sum+Math.max(0,Number(p.stock||0))*Number(db.prepare("SELECT unit_cost FROM stock_movements WHERE product_id=? ORDER BY id DESC LIMIT 1").get(p.id)?.unit_cost||0),0);
+  const stockSale = products.reduce((sum,p)=>sum+Math.max(0,Number(p.stock||0))*Number(p.price||0),0);
+  addReportSheet(workbook, "Оценка склада", [["Показатель","Показатель",38],["Сумма, грн","Сумма",22]], [
+    {Показатель:"Закупочная стоимость склада",Сумма:stockPurchase},
+    {Показатель:"Продажная стоимость склада",Сумма:stockSale},
+    {Показатель:"Потенциальная прибыль",Сумма:stockSale-stockPurchase}
+  ]);
   addReportSheet(workbook, "Склад", [
     ["ID","ID",10],["Главный раздел","Раздел",20],["Категория","Категория",24],["Товар","Товар",30],
     ["Цена, грн","Цена",14],["Остаток","Остаток",12],["Резерв","Резерв",12],["Свободно","Свободно",12],
@@ -211,6 +220,18 @@ async function createExcelReport(type, today = kyivDate(new Date())) {
     ["Себестоимость за единицу, грн","СебестоимостьЕд",24],["Себестоимость всего, грн","ОбщаяСебестоимость",24],
     ["Кто оплатил","КтоОплатил",18],["Комментарий","Комментарий",32]
   ], stockRowsPeriod);
+  const pendingInvoices = db.prepare("SELECT * FROM expected_invoices WHERE status='pending' ORDER BY id").all();
+  const expectedRows = [];
+  for (const inv of pendingInvoices) for (const it of db.prepare("SELECT * FROM expected_invoice_items WHERE invoice_id=? ORDER BY id").all(inv.id)) expectedRows.push({
+    Накладная:inv.id, Создана:inv.created_at, Товар:it.product_name, Количество:it.qty,
+    ЗакупкаЗаЕд:Number(it.unit_cost), ПродажаЗаЕд:Number(it.unit_price),
+    ЗакупкаВсего:Number(it.qty)*Number(it.unit_cost), ПродажаВсего:Number(it.qty)*Number(it.unit_price), Статус:"Ожидается"
+  });
+  addReportSheet(workbook, "Ожидаемые поставки", [
+    ["№ накладной","Накладная",14],["Создана","Создана",22],["Товар","Товар",28],["Количество","Количество",14],
+    ["Закупка за ед., грн","ЗакупкаЗаЕд",18],["Продажа за ед., грн","ПродажаЗаЕд",18],
+    ["Закупка всего, грн","ЗакупкаВсего",20],["Продажа всего, грн","ПродажаВсего",20],["Статус","Статус",16]
+  ], expectedRows);
   const filePath = path.join(period.folder, period.file);
   await workbook.xlsx.writeFile(filePath);
   return { filePath, title: period.title, period };
@@ -280,6 +301,9 @@ const adminKb = () => Markup.inlineKeyboard([
   [Markup.button.callback("✏️ Изменить категорию","a:editcat"),Markup.button.callback("🗑 Удалить категорию","a:delcat")],
   [Markup.button.callback("📦 Приход / склад","a:stock"),Markup.button.callback("💵 Кассы","a:cash")],
   [Markup.button.callback("📋 Все товары","a:allproducts")],
+  [Markup.button.callback("♻️ Удалённые: удалить навсегда","a:purgeproducts")],
+  [Markup.button.callback("🚚 Ожидаемые поставки","a:expected")],
+  [Markup.button.callback("📊 Excel ожидаемых","a:expectedexcel")],
   [Markup.button.callback("📜 История касс","a:history"),Markup.button.callback("📋 Заказы","a:orders")],
   [Markup.button.callback("📊 Excel-отчёт","a:excel")],
   [Markup.button.callback("📣 Рассылка","a:broadcast")]
@@ -358,10 +382,11 @@ async function sendProductCard(ctx, product) {
     }
   }
   await flushPhotos();
-  await ctx.reply("<b>"+esc(product.name)+"</b>\n"+esc(product.description||"")+"\nЦена: "+cash(product.price)+"\n"+(Number(product.stock)>0?"В наличии: "+product.stock:"Товар закончился"), {
+  const inStock = Number(product.stock) > 0;
+  await ctx.reply((inStock?"🟢 В наличии":"🔴 Нет в наличии")+"\n<b>"+esc(product.name)+"</b>\n"+esc(product.description||"")+"\nЦена: "+cash(product.price)+"\n"+(inStock?"Остаток: "+product.stock:"Товар закончился"), {
     parse_mode: "HTML",
     ...Markup.inlineKeyboard([
-      [Markup.button.callback("➕ В корзину","add:"+product.id)],
+      ...(inStock ? [[Markup.button.callback("➕ В корзину","add:"+product.id)]] : []),
       [Markup.button.callback("⬅️ К списку товаров", "cat:"+product.category_id)]
     ])
   });
@@ -369,7 +394,7 @@ async function sendProductCard(ctx, product) {
 async function showCategoryProducts(ctx, categoryId) {
   const cat = db.prepare("SELECT id,name,root_id FROM categories WHERE id=? AND active=1").get(categoryId);
   if (!cat) return ctx.reply("Категория не найдена.");
-  const products = db.prepare("SELECT id,name FROM products WHERE category_id=? AND active=1 ORDER BY name").all(categoryId);
+  const products = db.prepare("SELECT id,name FROM products WHERE category_id=? AND active=1 ORDER BY (stock>0) DESC,name").all(categoryId);
   if (!products.length) return ctx.reply("В категории «"+cat.name+"» пока нет товаров.");
   const rows = products.map(p => [Markup.button.callback(p.name, "product:"+p.id)]);
   rows.push([Markup.button.callback("🛍 Все товары", "catall:"+categoryId)]);
@@ -377,7 +402,7 @@ async function showCategoryProducts(ctx, categoryId) {
   return ctx.reply("Категория «"+cat.name+"». Выберите товар по названию:", Markup.inlineKeyboard(rows));
 }
 async function showRootProducts(ctx, rootGroupId) {
-  const products = db.prepare("SELECT p.id,p.name,p.description,p.price,p.stock,p.category_id FROM products p JOIN categories c ON c.id=p.category_id WHERE c.root_id=? AND c.active=1 AND p.active=1 ORDER BY p.name").all(rootGroupId);
+  const products = db.prepare("SELECT p.id,p.name,p.description,p.price,p.stock,p.category_id FROM products p JOIN categories c ON c.id=p.category_id WHERE c.root_id=? AND c.active=1 AND p.active=1 ORDER BY (p.stock>0) DESC,p.name").all(rootGroupId);
   if (!products.length) return ctx.reply("В этом разделе пока нет товаров.");
   for (const product of products) await sendProductCard(ctx, product);
 }
@@ -413,7 +438,7 @@ bot.action(/^cat:(\d+)$/,async ctx=>{await ctx.answerCbQuery();await showCategor
 bot.action(/^catall:(\d+)$/,async ctx=>{
   await ctx.answerCbQuery();
   const id=Number(ctx.match[1]);
-  const ps=db.prepare("SELECT id,name,description,price,stock,category_id FROM products WHERE category_id=? AND active=1 ORDER BY name").all(id);
+  const ps=db.prepare("SELECT id,name,description,price,stock,category_id FROM products WHERE category_id=? AND active=1 ORDER BY (stock>0) DESC,name").all(id);
   if(!ps.length)return ctx.reply("В этой категории пока нет товаров.");
   for(const p of ps) await sendProductCard(ctx,p);
 });
@@ -427,6 +452,7 @@ bot.action(/^add:(\d+)$/,async ctx=>{
   await ctx.answerCbQuery();saveUser(ctx);
   const p=db.prepare("SELECT * FROM products WHERE id=? AND active=1").get(Number(ctx.match[1]));
   if(!p) return ctx.reply("Товар недоступен.");
+  if(Number(p.stock||0)-Number(p.reserved||0)<=0) return ctx.reply("Товара сейчас нет в наличии. Его можно посмотреть, но заказать нельзя.");
   const cart=db.prepare("SELECT qty FROM carts WHERE user_id=? AND product_id=?").get(String(ctx.from.id),p.id);
   if((cart?.qty||0)>=Math.max(0,Number(p.stock||0)-Number(p.reserved||0))) return ctx.reply("Больше нет свободного остатка.");
   db.prepare(`INSERT INTO carts(user_id,product_id,qty) VALUES(?,?,1) ON CONFLICT(user_id,product_id) DO UPDATE SET qty=qty+1`).run(String(ctx.from.id),p.id);
@@ -509,6 +535,8 @@ bot.on("text",async ctx=>{
     db.prepare("UPDATE products SET price=? WHERE id=?").run(price,s.productId);clearState(ctx.from.id);
     return ctx.reply("Цена товара изменена на "+cash(price)+".",adminKb());
   }
+  if(s.step==="invoice_qty"){const qty=Number(t);if(!Number.isInteger(qty)||qty<1)return ctx.reply("Введите целое количество больше нуля.");s.qty=qty;s.step="invoice_cost";return ctx.reply("Закупочная цена за единицу, грн:",cancelKb());}
+  if(s.step==="invoice_cost"){const cost=Number(t.replace(",","."));if(!Number.isFinite(cost)||cost<0)return ctx.reply("Введите корректную закупочную цену.");db.prepare("INSERT INTO expected_invoice_items(invoice_id,product_id,product_name,qty,unit_cost,unit_price) VALUES(?,?,?,?,?,?)").run(s.invoiceId,s.productId,s.productName,s.qty,cost,s.unitPrice);s.step="invoice_more";return ctx.reply("Позиция добавлена. Что дальше?",Markup.inlineKeyboard([[Markup.button.callback("➕ Добавить ещё товар","a:invmore")],[Markup.button.callback("📥 Сохранить как ожидаемую","a:invsave")],[Markup.button.callback("❌ Отменить накладную","a:invcancel")]]));}
   if(s.step==="stock_qty"){const qty=Number(t);if(!Number.isInteger(qty)||qty<1)return ctx.reply("Введите целое количество больше нуля.");s.qty=qty;s.step="stock_cost";return ctx.reply("Закупочная цена за единицу, грн:",cancelKb());}
   if(s.step==="stock_cost"){const cost=Number(t.replace(",","."));if(!Number.isFinite(cost)||cost<0)return ctx.reply("Введите корректную себестоимость.");s.cost=cost;s.step="stock_payer";return ctx.reply("Кто оплатил? Андрей, Александр или общий.",cancelKb());}
   if(s.step==="stock_payer"){
@@ -612,9 +640,23 @@ bot.action(/^a:editdesc:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(
 bot.action(/^a:editprice:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;setState(ctx.from.id,{step:"edit_product_price",productId:Number(ctx.match[1])});await ctx.reply("Введите новую цену:",cancelKb());});
 bot.action(/^a:editmedia:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const id=Number(ctx.match[1]);mediaStates.set(String(ctx.from.id),{productId:id});await ctx.reply("Отправляйте фото/видео по одному. «🧹 Очистить медиа» удалит старые вложения; «✅ Готово с медиа» завершит.",Markup.keyboard([["🧹 Очистить медиа"],["✅ Готово с медиа"],["❌ Отмена"]]).resize());});
 bot.action("a:delproduct",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const ps=db.prepare("SELECT id,name FROM products WHERE active=1 ORDER BY name").all();if(!ps.length)return ctx.reply("Товаров нет.");await ctx.reply("Выберите товар для удаления:",Markup.inlineKeyboard(ps.map(p=>[Markup.button.callback(p.name,"a:delproduct:"+p.id)])));});
+bot.action("a:purgeproducts",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const ps=db.prepare("SELECT id,name FROM products WHERE active=0 ORDER BY name").all();if(!ps.length)return ctx.reply("Удалённых товаров нет.");await ctx.reply("Выберите удалённый товар для окончательного удаления:",Markup.inlineKeyboard(ps.map(p=>[Markup.button.callback(p.name,"a:purgeproduct:"+p.id)])));});
+bot.action(/^a:purgeproduct:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const id=Number(ctx.match[1]),p=db.prepare("SELECT name FROM products WHERE id=? AND active=0").get(id);if(!p)return ctx.reply("Товар не найден.");const refs=db.prepare("SELECT (SELECT COUNT(*) FROM order_items WHERE product_id=?) AS orders,(SELECT COUNT(*) FROM stock_movements WHERE product_id=?) AS stock").get(id,id);if(refs.orders||refs.stock)return ctx.reply("Нельзя удалить окончательно: товар связан с историей заказов или поступлений. История сохранена; товар уже скрыт из каталога.");db.transaction(()=>{db.prepare("DELETE FROM product_media WHERE product_id=?").run(id);db.prepare("DELETE FROM carts WHERE product_id=?").run(id);db.prepare("DELETE FROM products WHERE id=? AND active=0").run(id);});await ctx.reply("Товар «"+p.name+"» удалён окончательно.",adminKb());});
 bot.action(/^a:delproduct:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const id=Number(ctx.match[1]);const p=db.prepare("SELECT name FROM products WHERE id=? AND active=1").get(id);if(!p)return ctx.reply("Товар не найден.");await ctx.reply("Удалить «"+p.name+"» из каталога? История заказов сохранится.",Markup.inlineKeyboard([[Markup.button.callback("Да, удалить","a:delproductyes:"+id)],[Markup.button.callback("Отмена","a:delproductno")]]));});
 bot.action(/^a:delproductyes:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const id=Number(ctx.match[1]);db.transaction(()=>{db.prepare("UPDATE products SET active=0 WHERE id=?").run(id);db.prepare("DELETE FROM carts WHERE product_id=?").run(id);})();await ctx.reply("Товар удалён из каталога. История заказов сохранена.",adminKb());});
 bot.action("a:delproductno",async ctx=>{await ctx.answerCbQuery();await ctx.reply("Удаление отменено.",adminKb());});
+
+bot.action("a:expected",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const invs=db.prepare("SELECT id,created_at FROM expected_invoices WHERE status='pending' ORDER BY id DESC").all();await ctx.reply("📦 Ожидаемые поставки: "+invs.length,Markup.inlineKeyboard([[Markup.button.callback("➕ Создать накладную","a:invnew")],...invs.map(x=>[Markup.button.callback("Накладная №"+x.id+" · "+x.created_at,"a:invview:"+x.id)]),[Markup.button.callback("📊 Excel ожидаемых","a:expectedexcel")]]));});
+bot.action("a:invnew",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const id=Number(db.prepare("INSERT INTO expected_invoices(status,created_by) VALUES('draft',?)").run(String(ctx.from.id)).lastInsertRowid);const ps=db.prepare("SELECT id,name,price FROM products WHERE active=1 ORDER BY name").all();if(!ps.length){db.prepare("DELETE FROM expected_invoices WHERE id=?").run(id);return ctx.reply("Сначала добавьте товары.");}setState(ctx.from.id,{step:"invoice_product",invoiceId:id});await ctx.reply("Выберите товар:",Markup.inlineKeyboard(ps.map(p=>[Markup.button.callback(p.name+" · продажа "+cash(p.price),"a:invprod:"+p.id)])));});
+bot.action(/^a:invprod:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const st=getState(ctx.from.id);if(!st||st.step!=="invoice_product")return ctx.reply("Нет активного черновика накладной.");const p=db.prepare("SELECT id,name,price FROM products WHERE id=? AND active=1").get(Number(ctx.match[1]));if(!p)return ctx.reply("Товар не найден.");Object.assign(st,{productId:p.id,productName:p.name,unitPrice:p.price,step:"invoice_qty"});await ctx.reply("Количество товара «"+p.name+"»:",cancelKb());});
+bot.action("a:invmore",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const st=getState(ctx.from.id);if(!st||st.step!=="invoice_more")return ctx.reply("Нет накладной для продолжения.");st.step="invoice_product";const ps=db.prepare("SELECT id,name,price FROM products WHERE active=1 ORDER BY name").all();await ctx.reply("Выберите следующий товар:",Markup.inlineKeyboard(ps.map(p=>[Markup.button.callback(p.name+" · продажа "+cash(p.price),"a:invprod:"+p.id)])));});
+bot.action("a:invsave",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const st=getState(ctx.from.id);if(!st||st.step!=="invoice_more")return ctx.reply("Нет накладной для сохранения.");const n=db.prepare("SELECT COUNT(*) AS n FROM expected_invoice_items WHERE invoice_id=?").get(st.invoiceId).n;if(!n)return ctx.reply("Добавьте хотя бы один товар.");db.prepare("UPDATE expected_invoices SET status='pending' WHERE id=? AND status='draft'").run(st.invoiceId);clearState(ctx.from.id);await ctx.reply("Накладная №"+st.invoiceId+" сохранена со статусом «Ожидается». Склад не изменён.",adminKb());});
+bot.action("a:invcancel",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const st=getState(ctx.from.id);if(st?.invoiceId)db.prepare("DELETE FROM expected_invoices WHERE id=? AND status='draft'").run(st.invoiceId);clearState(ctx.from.id);await ctx.reply("Черновик отменён.",adminKb());});
+bot.action(/^a:invview:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const id=Number(ctx.match[1]),inv=db.prepare("SELECT * FROM expected_invoices WHERE id=? AND status='pending'").get(id);if(!inv)return ctx.reply("Ожидаемая накладная не найдена.");const items=db.prepare("SELECT * FROM expected_invoice_items WHERE invoice_id=? ORDER BY id").all(id);const buy=items.reduce((a,x)=>a+x.qty*x.unit_cost,0),sell=items.reduce((a,x)=>a+x.qty*x.unit_price,0);await ctx.reply("📦 Накладная №"+id+" · Ожидается\n"+items.map(x=>x.product_name+" — "+x.qty+" шт. × закупка "+cash(x.unit_cost)+"; продажа "+cash(x.unit_price)).join("\n")+"\nИтого закупка: "+cash(buy)+"\nИтого продажа: "+cash(sell),Markup.inlineKeyboard([[Markup.button.callback("✅ Подтвердить получение","a:invconfirm:"+id)]]));});
+bot.action(/^a:invconfirm:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const id=Number(ctx.match[1]),inv=db.prepare("SELECT * FROM expected_invoices WHERE id=? AND status='pending'").get(id);if(!inv)return ctx.reply("Накладная уже обработана.");const items=db.prepare("SELECT * FROM expected_invoice_items WHERE invoice_id=?").all(id);db.transaction(()=>{for(const it of items){db.prepare("UPDATE products SET stock=stock+? WHERE id=?").run(it.qty,it.product_id);db.prepare("INSERT INTO stock_movements(product_id,qty,unit_cost,payer,comment) VALUES(?,?,?,?,?)").run(it.product_id,it.qty,it.unit_cost,ADMINS[String(ctx.from.id)]||String(ctx.from.id),"Накладная №"+id);}db.prepare("UPDATE expected_invoices SET status='confirmed',confirmed_by=?,confirmed_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'").run(String(ctx.from.id),id);})();await ctx.reply("Поставка №"+id+" подтверждена. Товары зачислены на склад.",adminKb());});
+async function sendExpectedInvoicesExcel(adminId){const wb=new ExcelJS.Workbook();wb.creator="Продаван";const invoices=db.prepare("SELECT * FROM expected_invoices WHERE status='pending' ORDER BY id").all();const rows=[];let buy=0,sell=0;for(const inv of invoices)for(const it of db.prepare("SELECT * FROM expected_invoice_items WHERE invoice_id=? ORDER BY id").all(inv.id)){const b=it.qty*it.unit_cost,v=it.qty*it.unit_price;buy+=b;sell+=v;rows.push({Накладная:inv.id,Создана:inv.created_at,Товар:it.product_name,Количество:it.qty,ЗакупкаЗаЕд:it.unit_cost,ПродажаЗаЕд:it.unit_price,ЗакупкаВсего:b,ПродажаВсего:v});}addReportSheet(wb,"Сводка",[["Показатель","Показатель",36],["Сумма, грн","Сумма",20]],[{Показатель:"Общая закупочная стоимость",Сумма:buy},{Показатель:"Общая продажная стоимость",Сумма:sell},{Показатель:"Потенциальная прибыль",Сумма:sell-buy}]);addReportSheet(wb,"Позиции",[["Накладная","Накладная",14],["Создана","Создана",22],["Товар","Товар",28],["Количество","Количество",14],["Закупка за ед., грн","ЗакупкаЗаЕд",18],["Продажа за ед., грн","ПродажаЗаЕд",18],["Закупка всего, грн","ЗакупкаВсего",20],["Продажа всего, грн","ПродажаВсего",20]],rows);const file=path.join(REPORTS_DIR,"Ожидаемые_поставки_"+kyivDate(new Date())+".xlsx");await wb.xlsx.writeFile(file);await bot.telegram.sendDocument(String(adminId),Input.fromLocalFile(file,path.basename(file)),{caption:"Ожидаемые поставки. Закупка: "+cash(buy)+"; продажа: "+cash(sell)+"; потенциальная прибыль: "+cash(sell-buy)});return file;}
+bot.action("a:expectedexcel",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;try{const file=await sendExpectedInvoicesExcel(ctx.from.id);await ctx.reply("Отчёт сохранён: "+file,adminKb());}catch(e){console.error(e);await ctx.reply("Ошибка Excel: "+e.message);}});
+
 bot.action("a:stock",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const ps=db.prepare("SELECT id,name,stock,reserved FROM products WHERE active=1 ORDER BY name").all();if(!ps.length)return ctx.reply("Товаров нет.");await ctx.reply("Склад (остаток / резерв / свободно):",Markup.inlineKeyboard(ps.map(p=>[Markup.button.callback(p.name+" ("+p.stock+" / "+p.reserved+" / "+Math.max(0,p.stock-p.reserved)+")","a:stockprod:"+p.id)])));});
 bot.action(/^a:stockprod:(\d+)$/,async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;setState(ctx.from.id,{step:"stock_qty",productId:Number(ctx.match[1])});await ctx.reply("Количество прихода:",cancelKb());});
 bot.action("a:cash",async ctx=>{await ctx.answerCbQuery();if(!admin(ctx.from.id))return;const as=db.prepare("SELECT * FROM cash_accounts ORDER BY admin_name").all();await ctx.reply("Кассы:",Markup.inlineKeyboard(as.map(a=>[Markup.button.callback(a.admin_name+": "+cash(a.balance),"cash:account:"+a.admin_id)]).concat([[Markup.button.callback("🔁 Перевод между кассами","cash:transfer")]])));});
