@@ -153,7 +153,7 @@ async function createExcelReport(type, today = kyivDate(new Date())) {
     Свободно: Math.max(0, Number(p.stock || 0) - Number(p.reserved || 0)),
     Активен: p.active ? "Да" : "Нет", Описание: p.description || ""
   }));
-  const stockPurchase = products.reduce((sum,p)=>sum+Math.max(0,Number(p.stock||0))*Number(db.prepare("SELECT unit_cost FROM stock_movements WHERE product_id=? ORDER BY id DESC LIMIT 1").get(p.id)?.unit_cost||0),0);
+  const stockPurchase = products.reduce((sum,p)=>{const batches=db.prepare("SELECT COALESCE(SUM(qty),0) AS qty,COALESCE(SUM(qty*unit_cost),0) AS cost FROM stock_movements WHERE product_id=?").get(p.id);const average=batches.qty>0?batches.cost/batches.qty:0;return sum+Math.max(0,Number(p.stock||0))*average;},0);
   const stockSale = products.reduce((sum,p)=>sum+Math.max(0,Number(p.stock||0))*Number(p.price||0),0);
   addReportSheet(workbook, "Оценка склада", [["Показатель","Показатель",38],["Сумма, грн","Сумма",22]], [
     {Показатель:"Закупочная стоимость склада",Сумма:stockPurchase},
