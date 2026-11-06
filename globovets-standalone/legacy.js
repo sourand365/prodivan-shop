@@ -5393,6 +5393,7 @@ bot.on(
 // 🔴 iPOST
 // 🚨 Bolt TR
 // 👤 Личные доставки
+// 🏢 Этажи
 // ☕ Чаевые
 // 🎯 Квесты
 //
@@ -5408,6 +5409,10 @@ bot.on(
 //
 // К 500
 // К 30.09.2026 500
+//
+// Э 150
+// Э 150 30.09.2026
+// Э 30.09.2026 150
 //
 // Мой день
 // Топ день
@@ -5973,6 +5978,9 @@ function finalEarningsEnsureItem(
         0,
 
       quests:
+        0,
+
+      floors:
         0
     };
   }
@@ -6004,6 +6012,9 @@ function finalEarningsEnsureItem(
 
   item.quests =
     Number(item.quests) || 0;
+
+  item.floors =
+    Number(item.floors) || 0;
 
   return item;
 }
@@ -6211,13 +6222,13 @@ async function finalEarningsAdd(
 // ============================================================
 
 bot.hears(
-  /^(?:(?:гл|г|болт|б|п\+|а|т|л|к)\s+\d{2}[./]\d{2}[./]\d{4}\s+\d+(?:[.,]\d+)?(?:\r?\n|$))+$/i,
+  /^(?:(?:гл|г|болт|б|п\+|а|т|л|к|э)\s+\d{2}[./]\d{2}[./]\d{4}\s+\d+(?:[.,]\d+)?(?:\r?\n|$))+$/i,
   async ctx => {
     const lines = String(ctx.message.text || "").split(/\r?\n/).map(s => s.trim()).filter(Boolean);
     const parsed = [];
     const errors = [];
     for (let i = 0; i < lines.length; i++) {
-      const m = lines[i].match(/^(гл|г|болт|б|п\+|а|т|л|к)\s+(\d{2}[./]\d{2}[./]\d{4})\s+(\d+(?:[.,]\d+)?)$/i);
+      const m = lines[i].match(/^(гл|г|болт|б|п\+|а|т|л|к|э)\s+(\d{2}[./]\d{2}[./]\d{4})\s+(\d+(?:[.,]\d+)?)$/i);
       if (!m) { errors.push("Строка " + (i + 1) + ": неверный формат"); continue; }
       const typeWord = m[1].toLowerCase();
       const amount = Number(m[3].replace(",", "."));
@@ -6229,6 +6240,7 @@ bot.hears(
         : /^(болт|б)$/.test(typeWord) ? "bolt"
         : /^(п\+|а)$/.test(typeWord) ? "ipost"
         : typeWord === "т" ? "bolttr"
+        : typeWord === "э" ? "floors"
         : typeWord === "л" ? "personal" : "quests";
       const date = finalEarningsParseDate(m[2]);
       if (!date) { errors.push("Строка " + (i + 1) + ": неверная дата"); continue; }
@@ -6240,7 +6252,7 @@ bot.hears(
     }
     let added = 0;
     for (const row of parsed) {
-      if (row.type === "personal" || row.type === "quests") {
+      if (row.type === "personal" || row.type === "quests" || row.type === "floors") {
         await finalEarningsAddExtra(ctx, row.type, row.amount, row.date);
       } else {
         await finalEarningsAdd(ctx, row.type, row.amount, row.date);
@@ -6382,7 +6394,9 @@ async function finalEarningsAddExtra(
       (
         type === "personal"
           ? "👤 Личные доставки"
-          : "🎯 Квесты"
+          : type === "floors"
+            ? "🏢 Этажи"
+            : "🎯 Квесты"
       ) +
       ` +${amount} грн\n` +
       `📅 ${finalEarningsDotDate(parsed)}`
@@ -6447,6 +6461,13 @@ bot.hears(
   }
 );
 
+
+bot.hears(
+  /^э\s+(\d+(?:[.,]\d+)?)(?:\s+(\d{2}[./]\d{2}[./]\d{4}|\d{4}-\d{2}-\d{2}))?$/i,
+  async ctx => {
+    await finalEarningsAddExtra(ctx, "floors", finalEarningsAmount(ctx.match[1]), ctx.match[2] || finalEarningsToday());
+  }
+);
 
 // ============================================================
 // 📅 НЕДЕЛЯ / МЕСЯЦ
@@ -6678,6 +6699,9 @@ async function finalEarningsReport(
   const personal =
     Number(item.personal) || 0;
 
+  const floors =
+    Number(item.floors) || 0;
+
   const teaData =
     await finalEarningsTeaForDate(
       dateKey
@@ -6716,6 +6740,8 @@ async function finalEarningsReport(
 
     personal,
 
+    floors,
+
     tea,
 
     quests:
@@ -6727,6 +6753,7 @@ async function finalEarningsReport(
       ipost +
       bolttr +
       personal +
+      floors +
       tea
   };
 }
@@ -7062,6 +7089,8 @@ bot.hears(
 
         `👤 Личные доставки — ${report.personal} грн\n` +
 
+        `🏢 Этажи — ${report.floors} грн\n` +
+
         `☕ Чаевые — ${report.tea} грн\n\n` +
 
         "━━━━━━━━━━━━━━\n" +
@@ -7216,6 +7245,7 @@ async function finalEarningsShowDay(
           `🚨 ${item.bolttr} | ` +
           `👤 ${item.personal} | ` +
           `☕ ${item.tea}\n` +
+          `🏢 Этажи — ${item.floors} грн\n` +
           `💰 Итого: ${item.total} грн\n` +
           `🏍 Пробег: ${mileage} км\n\n`;
       }
@@ -7303,6 +7333,7 @@ async function finalEarningsPeriodEntries(
     bolttr,
     personal,
     quests,
+    floors,
     tea
   ) {
 
@@ -7338,6 +7369,9 @@ async function finalEarningsPeriodEntries(
         quests:
           0,
 
+        floors:
+          0,
+
         tea:
           0
       };
@@ -7366,6 +7400,9 @@ async function finalEarningsPeriodEntries(
 
     totals[id].quests +=
       Number(quests) || 0;
+
+    totals[id].floors +=
+      Number(floors) || 0;
 
     totals[id].tea +=
       Number(tea) || 0;
@@ -7443,6 +7480,8 @@ async function finalEarningsPeriodEntries(
         item.personal,
 
         item.quests,
+
+        item.floors,
 
         0
       );
@@ -7540,6 +7579,7 @@ async function finalEarningsPeriodEntries(
         0,
         0,
         0,
+        0,
 
         Number(
           item.amount
@@ -7565,6 +7605,7 @@ async function finalEarningsPeriodEntries(
             item.bolttr +
             item.personal +
             item.quests +
+            item.floors +
             item.tea
         })
       )
@@ -7931,6 +7972,9 @@ async function finalEarningsShowPeriod(
           quests:
             0,
 
+          floors:
+            0,
+
           tea:
             0,
 
@@ -7975,7 +8019,10 @@ async function finalEarningsShowPeriod(
         `👤 Личные доставки — ${mine.personal} грн\n`;
 
       text +=
-        `☕ Чаевые — ${mine.tea} грн\n\n`;
+        `☕ Чаевые — ${mine.tea} грн\n`;
+
+      text +=
+        `🏢 Этажи — ${mine.floors} грн\n\n`;
 
       text +=
         "━━━━━━━━━━━━━━\n";
@@ -8292,6 +8339,7 @@ async function finalEarningsShowPeriodKey(ctx, period, key, mode) {
         bolttr: 0,
         personal: 0,
         tea: 0,
+        floors: 0,
         quests: 0,
         total: 0,
         name:
@@ -8305,6 +8353,7 @@ async function finalEarningsShowPeriodKey(ctx, period, key, mode) {
       `🚨 Bolt TR — ${mine.bolttr} грн\n` +
       `👤 Личные доставки — ${mine.personal} грн\n` +
       `☕ Чаевые — ${mine.tea} грн\n` +
+      `🏢 Этажи — ${mine.floors} грн\n` +
       `🎯 Квесты — ${mine.quests} грн\n\n` +
       `💰 ИТОГО — ${mine.total} грн`;
 
@@ -8328,7 +8377,7 @@ async function finalEarningsShowPeriodKey(ctx, period, key, mode) {
           `🔴 ${item.ipost} | ` +
           `🚨 ${item.bolttr} | ` +
           `👤 ${item.personal} | ` +
-          `☕ ${item.tea}\n` +
+          `☕ ${item.tea} | 🏢 ${item.floors}\n` +
           `🎯 Квесты — ${item.quests}\n` +
           `💰 Итого: ${item.total} грн\n\n`;
       }
@@ -8578,6 +8627,7 @@ async function finalEarningsPeriodEntriesForKey(
     bolttr,
     personal,
     quests,
+    floors,
     tea
   ) {
 
@@ -8613,6 +8663,9 @@ async function finalEarningsPeriodEntriesForKey(
         quests:
           0,
 
+        floors:
+          0,
+
         tea:
           0
       };
@@ -8641,6 +8694,9 @@ async function finalEarningsPeriodEntriesForKey(
 
     totals[id].quests +=
       Number(quests) || 0;
+
+    totals[id].floors +=
+      Number(floors) || 0;
 
     totals[id].tea +=
       Number(tea) || 0;
@@ -8714,6 +8770,8 @@ async function finalEarningsPeriodEntriesForKey(
         item.personal,
 
         item.quests,
+
+        item.floors,
 
         0
       );
@@ -8806,6 +8864,8 @@ async function finalEarningsPeriodEntriesForKey(
         0,
         0,
         0,
+        0,
+        0,
 
         item.amount
       );
@@ -8827,6 +8887,7 @@ async function finalEarningsPeriodEntriesForKey(
         item.bolttr +
         item.personal +
         item.quests +
+        item.floors +
         item.tea
     })
   );
@@ -9144,6 +9205,9 @@ bot.command(
       day[userId].quests =
         0;
 
+      day[userId].floors =
+        0;
+
 
       // ЧАЕВЫЕ НЕ ТРОГАЕМ.
 
@@ -9176,7 +9240,8 @@ bot.command(
 
         "👤 Личные доставки: 0 грн\n" +
 
-        "🎯 Квесты: 0 грн\n\n" +
+        "🎯 Квесты: 0 грн\n" +
+        "🏢 Этажи: 0 грн\n\n" +
 
         "☕ Чаевые — НЕ ТРОНУТЫ"
       );
