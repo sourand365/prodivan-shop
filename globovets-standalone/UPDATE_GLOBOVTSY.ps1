@@ -34,7 +34,7 @@ if ($LASTEXITCODE -ge 8) { throw 'Не удалось создать резер�
 $hadLock = Test-Path (Join-Path $root 'package-lock.json')
 $temp = Join-Path $env:TEMP ("globovets-update-" + $stamp)
 New-Item -ItemType Directory -Path $temp -Force | Out-Null
-$base = 'https://raw.githubusercontent.com/sourand365/prodivan-shop/e7b54f36866cc10007c90824d88dbae62f57c48c/globovets-standalone/'
+$base = 'https://raw.githubusercontent.com/sourand365/prodivan-shop/253285ca9a412e02a7cf306acc96f4c32446dde0/globovets-standalone/'
 try {
   Write-Host 'Скачиваю файлы обновления из GitHub...' -ForegroundColor Yellow
   foreach ($file in $required) {
