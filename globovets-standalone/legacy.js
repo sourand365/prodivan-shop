@@ -9711,7 +9711,7 @@ bot.on("sticker", async ctx => {
       set_name: sticker.set_name || null
     });
 
-    if (sticker.file_id === "CAACAgIAAxkBAAIsK2rnzBsF9afJESW3ILiatU88Wz3-AAIjbQACRjiISl_-j6h0uIzrPQQ") {
+    if (sticker.file_unique_id === "AgADI20AAkY4iEo") {
       await ctx.replyWithSticker(
         "CAACAgIAAxkBAAIsZGruXnFLLIlCst7pJ7tR1OSTJWRgAAKPogACVb0wSomNG0IFRJ3uPQQ",
         { reply_to_message_id: ctx.message.message_id }
