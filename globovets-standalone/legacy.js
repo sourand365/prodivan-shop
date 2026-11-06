@@ -7244,7 +7244,7 @@ async function finalEarningsShowDay(
           `🔴 ${item.ipost} | ` +
           `🚨 ${item.bolttr} | ` +
           `👤 ${item.personal} | ` +
-          `☕ ${item.tea} | 🏢 ${item.floors}\n` +
+          `☕ ${item.tea}\n` +
           `🏢 Этажи — ${item.floors} грн\n` +
           `💰 Итого: ${item.total} грн\n` +
           `🏍 Пробег: ${mileage} км\n\n`;
