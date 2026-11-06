@@ -10,7 +10,17 @@ if (-not (Test-Path (Join-Path $root 'package.json')) -or -not (Test-Path (Join-
   if (-not $entered -or -not (Test-Path (Join-Path $entered 'package.json'))) { throw 'Папка проекта не найдена.' }
   $root = (Resolve-Path $entered).Path
 }
-$required = @('index.js','legacy.js','package.json')
+$required = @(
+  'index.js',
+  'legacy.js',
+  'package.json',
+  'assets\complaint-audio-01.b64',
+  'assets\complaint-audio-02.b64',
+  'assets\complaint-audio-03.b64',
+  'assets\complaint-audio-04a.b64',
+  'assets\complaint-audio-04b.b64',
+  'assets\complaint-audio-04c.b64'
+)
 foreach ($file in $required) { if (-not (Test-Path (Join-Path $root $file))) { throw "В папке проекта отсутствует $file" } }
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $backupRoot = Join-Path (Split-Path $root -Parent) ("globovets-backup-" + $stamp)
@@ -23,14 +33,22 @@ if ($LASTEXITCODE -ge 8) { throw 'Не удалось создать резер�
 $hadLock = Test-Path (Join-Path $root 'package-lock.json')
 $temp = Join-Path $env:TEMP ("globovets-update-" + $stamp)
 New-Item -ItemType Directory -Path $temp -Force | Out-Null
-$base = 'https://raw.githubusercontent.com/sourand365/prodivan-shop/1aa26548f61488791c47d6ed86148bd79db336e0/globovets-standalone/'
+$base = 'https://raw.githubusercontent.com/sourand365/prodivan-shop/e7b54f36866cc10007c90824d88dbae62f57c48c/globovets-standalone/'
 try {
   Write-Host 'Скачиваю файлы обновления из GitHub...' -ForegroundColor Yellow
   foreach ($file in $required) {
-    Invoke-WebRequest -Uri ($base + $file) -OutFile (Join-Path $temp $file) -UseBasicParsing
-    if ((Get-Item (Join-Path $temp $file)).Length -lt 10) { throw "Получен пустой или повреждённый файл: $file" }
+    $relativeUrl = $file -replace '\\','/'
+    $tempFile = Join-Path $temp $file
+    New-Item -ItemType Directory -Path (Split-Path $tempFile -Parent) -Force | Out-Null
+    Invoke-WebRequest -Uri ($base + $relativeUrl) -OutFile $tempFile -UseBasicParsing
+    if ((Get-Item $tempFile).Length -lt 10) { throw "Получен пустой или повреждённый файл: $file" }
   }
-  foreach ($file in $required) { Copy-Item (Join-Path $temp $file) (Join-Path $root $file) -Force }
+  foreach ($file in $required) {
+    $source = Join-Path $temp $file
+    $destination = Join-Path $root $file
+    New-Item -ItemType Directory -Path (Split-Path $destination -Parent) -Force | Out-Null
+    Copy-Item $source $destination -Force
+  }
   Write-Host 'Устанавливаю зависимости...' -ForegroundColor Yellow
   Push-Location $root
   & npm install
