@@ -9702,11 +9702,21 @@ bot.command(
 // ============================================================
 bot.on("sticker", async ctx => {
   try {
-    if (ctx.message?.sticker?.file_id === "CAACAgIAAxkBAAIrxmrl6NLayfJGA2h6Bs4sUvTHFvzMAAIjbQACRjiISl_-j6h0uIzrPQQ") {
+    const sticker = ctx.message?.sticker;
+    if (!sticker) return;
+
+    console.log("[Глобовец] Получен стикер:", {
+      file_id: sticker.file_id,
+      file_unique_id: sticker.file_unique_id,
+      set_name: sticker.set_name || null
+    });
+
+    if (sticker.file_id === "CAACAgIAAxkBAAIsK2rnzBsF9afJESW3ILiatU88Wz3-AAIjbQACRjiISl_-j6h0uIzrPQQ") {
       await ctx.replyWithSticker(
-        "CAACAgIAAxkBAAIryGrl6Oala5rt8FOSbohAE9_PHY4WAAKPogACVb0wSomNG0IFRJ3uPQQ",
+        "CAACAgIAAxkBAAIsZGruXnFLLIlCst7pJ7tR1OSTJWRgAAKPogACVb0wSomNG0IFRJ3uPQQ",
         { reply_to_message_id: ctx.message.message_id }
       );
+      console.log("[Глобовец] Ответный стикер отправлен.");
     }
   } catch (error) {
     console.error("Ошибка ответного стикера:", error);
