@@ -21,7 +21,8 @@ $required = @(
   'assets\complaint-audio-04b.b64',
   'assets\complaint-audio-04c.b64'
 )
-foreach ($file in $required) { if (-not (Test-Path (Join-Path $root $file))) { throw "В папке проекта отсутствует $file" } }
+$coreRequired = @('index.js','legacy.js','package.json')
+foreach ($file in $coreRequired) { if (-not (Test-Path (Join-Path $root $file))) { throw "В папке проекта отсутствует $file" } }
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $backupRoot = Join-Path (Split-Path $root -Parent) ("globovets-backup-" + $stamp)
 $backup = Join-Path $backupRoot 'project'
