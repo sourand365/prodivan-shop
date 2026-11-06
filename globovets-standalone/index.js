@@ -181,7 +181,7 @@ async function start() {
     throw new Error("Не удалось загрузить аудио для команды «Жалоба».");
   }
 
-  bot.hears(/^\\s*(?:жалоба|жб)\\s*$/iu, async ctx => {
+  bot.hears(/^\s*(?:жалоба|жб)\s*$/iu, async ctx => {
     try {
       await ctx.replyWithVoice({
         source: complaintAudio,
