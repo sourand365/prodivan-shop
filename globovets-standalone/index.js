@@ -170,7 +170,7 @@ async function start() {
   new Function("bot", "db", legacySource)(bot, db);
 
   // Audio reply for the exact triggers "Жалоба" and "жб".
-  const complaintAudioParts = ["01", "02", "03", "04"].map(part =>
+  const complaintAudioParts = ["01", "02", "03", "04a", "04b", "04c"].map(part =>
     fs.readFileSync(
       path.join(__dirname, "assets", "complaint-audio-" + part + ".b64"),
       "utf8"
