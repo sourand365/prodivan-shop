@@ -164,10 +164,8 @@ function makeBackup() {
 }
 
 async function start() {
-  const legacyPath = path.join(__dirname, "legacy.js");
-  if (!fs.existsSync(legacyPath)) throw new Error("Не найден legacy.js.");
-  const legacySource = fs.readFileSync(legacyPath, "utf8");
-  new Function("bot", "db", legacySource)(bot, db);
+  // Complaint handler must be registered before legacy.js because legacy.js
+  // ends with a bot.on("text") middleware that consumes unmatched text updates.
 
   // Audio reply for the exact triggers "Жалоба" and "жб".
   const complaintAudioParts = ["01", "02", "03", "04a", "04b", "04c"].map(part =>
@@ -192,6 +190,11 @@ async function start() {
       await ctx.reply("❌ Не удалось отправить аудио. Попробуй ещё раз.");
     }
   });
+
+  const legacyPath = path.join(__dirname, "legacy.js");
+  if (!fs.existsSync(legacyPath)) throw new Error("Не найден legacy.js.");
+  const legacySource = fs.readFileSync(legacyPath, "utf8");
+  new Function("bot", "db", legacySource)(bot, db);
 
   await bot.launch();
   console.log("Глобовец запущен. База:", DB_PATH);
