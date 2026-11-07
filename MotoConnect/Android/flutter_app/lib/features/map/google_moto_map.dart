@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:geolocator/geolocator.dart';
 
 const Color _motoYellow = Color(0xFFFFD400);
 
@@ -61,11 +62,20 @@ class _GoogleMotoMapState extends State<GoogleMotoMap> {
       if (!status.isGranted && status.isPermanentlyDenied) await openAppSettings();
       return;
     }
-    // Native location layer displays the actual blue GPS dot. The map starts
-    // centered on Odesa; GPS follow/recenter can be wired to live positioning later.
-    await _controller?.animateCamera(CameraUpdate.newCameraPosition(
-      const CameraPosition(target: _odessa.target, zoom: 15.5),
-    ));
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) { await Geolocator.openLocationSettings(); return; }
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
+      );
+      await _controller?.animateCamera(CameraUpdate.newLatLngZoom(
+        LatLng(position.latitude, position.longitude), 16,
+      ));
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Не удалось определить местоположение. Проверь GPS.')),
+      );
+    }
   }
 
   @override
