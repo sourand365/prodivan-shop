@@ -37,3 +37,6 @@ APK output: `build/app/outputs/flutter-apk/app-debug.apk`.
 - Persistent theme preference.
 
 Do not distribute this prototype as a production app. Permissions, privacy controls, security, background behavior and device testing are still required.
+
+
+Google Maps SDK is configured for the Moto Sport map. The build reads the API key from the GitHub Actions secret `MAPS_API_KEY`.
