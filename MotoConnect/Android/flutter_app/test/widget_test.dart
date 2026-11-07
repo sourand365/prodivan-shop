@@ -30,6 +30,16 @@ void main() {
 
     expect(find.text('Тестовая команда'), findsOneWidget);
     expect(find.textContaining('локальный черновик'), findsOneWidget);
+
+    await tester.tap(find.text('Тестовая команда'));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.text('Участники'), findsOneWidget);
+    expect(find.text('Голосовая связь'), findsOneWidget);
+    expect(find.text('Локальная группа · владелец: вы'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Назад к группам'));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.text('Тестовая команда'), findsOneWidget);
   });
 
   testWidgets('Map chat opens and accepts a local draft message', (tester) async {
