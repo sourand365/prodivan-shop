@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'features/auth/motoconnect_auth_service.dart';
 import 'features/map/google_moto_map.dart';
 import 'features/voice/livekit_voice_service.dart';
 
@@ -33,6 +34,50 @@ class MotoConnectApp extends StatefulWidget {
 
 class _MotoConnectAppState extends State<MotoConnectApp> {
   ThemeMode _themeMode = ThemeMode.dark;
+  final MotoConnectAuthService _authService = MotoConnectAuthService();
+  bool _authLoading = true;
+  MotoConnectUser? _user;
+
+  @override
+  void initState() {
+    super.initState();
+    _restoreSession();
+  }
+
+  Future<void> _restoreSession() async {
+    final user = await _authService.restoreSession();
+    if (!mounted) return;
+    setState(() {
+      _user = user;
+      _authLoading = false;
+    });
+  }
+
+  void _onSignedIn(MotoConnectUser user) {
+    if (!mounted) return;
+    setState(() {
+      _user = user;
+      _authLoading = false;
+    });
+  }
+
+  Future<void> _logout() async {
+    await _authService.logout();
+    if (!mounted) return;
+    setState(() => _user = null);
+  }
+
+  VoiceTokenProvider? get _voiceTokenProvider {
+    if (widget.voiceTokenProvider != null) return widget.voiceTokenProvider;
+    if (!_authService.isConfigured) return null;
+    return (roomName) async {
+      final credentials = await _authService.requestVoiceToken(roomName);
+      return VoiceConnectionCredentials(
+        serverUrl: credentials['serverUrl']!,
+        participantToken: credentials['participantToken']!,
+      );
+    };
+  }
 
   void _toggleTheme(bool isDark) {
     setState(() => _themeMode = isDark ? ThemeMode.dark : ThemeMode.light);
@@ -79,24 +124,163 @@ class _MotoConnectAppState extends State<MotoConnectApp> {
         ),
         useMaterial3: true,
       ),
-      home: MotoShell(
-        voiceTokenProvider: widget.voiceTokenProvider,
-        isDark: _themeMode == ThemeMode.dark,
-        onThemeChanged: _toggleTheme,
-      ),
+      home: _authLoading
+          ? const _AuthLoadingScreen()
+          : _user == null
+              ? AuthScreen(
+                  authService: _authService,
+                  onSignedIn: _onSignedIn,
+                )
+              : MotoShell(
+                  voiceTokenProvider: _voiceTokenProvider,
+                  user: _user!,
+                  onLogout: _logout,
+                  isDark: _themeMode == ThemeMode.dark,
+                  onThemeChanged: _toggleTheme,
+                ),
     );
   }
+}
+
+
+class _AuthLoadingScreen extends StatelessWidget {
+  const _AuthLoadingScreen();
+
+  @override
+  Widget build(BuildContext context) => const Scaffold(
+    backgroundColor: Color(0xFF090909),
+    body: Center(child: CircularProgressIndicator(color: motoYellow)),
+  );
+}
+
+class AuthScreen extends StatefulWidget {
+  const AuthScreen({
+    required this.authService,
+    required this.onSignedIn,
+    super.key,
+  });
+
+  final MotoConnectAuthService authService;
+  final ValueChanged<MotoConnectUser> onSignedIn;
+
+  @override
+  State<AuthScreen> createState() => _AuthScreenState();
+}
+
+class _AuthScreenState extends State<AuthScreen> {
+  bool _busy = false;
+  String? _error;
+
+  Future<void> _signIn() async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await widget.authService.signInWithTelegram();
+      final user = widget.authService.currentUser;
+      if (!mounted || user == null) return;
+      widget.onSignedIn(user);
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: const Color(0xFF090909),
+    body: SafeArea(
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.two_wheeler, color: motoYellow, size: 66),
+                const SizedBox(height: 12),
+                const Text(
+                  'MOTO CONNECT',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 27,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 2,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Войди через Telegram, чтобы получить свой постоянный ID и находить курьеров поблизости.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white70, height: 1.5),
+                ),
+                const SizedBox(height: 28),
+                if (!widget.authService.isConfigured)
+                  const Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(14),
+                      child: Text(
+                        'Сервер авторизации ещё не подключён. После размещения API будет добавлен его HTTPS-адрес в сборку приложения.',
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _busy || !widget.authService.isConfigured
+                        ? null
+                        : _signIn,
+                    icon: _busy
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.telegram),
+                    label: Text(_busy ? 'Ожидаем подтверждение…' : 'Войти через Telegram'),
+                  ),
+                ),
+                if (_error != null) ...[
+                  const SizedBox(height: 14),
+                  Text(
+                    _error!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.redAccent),
+                  ),
+                ],
+                const SizedBox(height: 18),
+                const Text(
+                  'Один Telegram-аккаунт — один MotoConnect ID. При повторном входе ID сохраняется.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class MotoShell extends StatefulWidget {
   const MotoShell({
     required this.voiceTokenProvider,
+    required this.user,
+    required this.onLogout,
     required this.isDark,
     required this.onThemeChanged,
     super.key,
   });
 
   final VoiceTokenProvider? voiceTokenProvider;
+  final MotoConnectUser user;
+  final VoidCallback onLogout;
   final bool isDark;
   final ValueChanged<bool> onThemeChanged;
 
@@ -120,6 +304,8 @@ class _MotoShellState extends State<MotoShell> {
       CallsScreen(voiceTokenProvider: widget.voiceTokenProvider),
       GroupsScreen(voiceTokenProvider: widget.voiceTokenProvider),
       ProfileScreen(
+        user: widget.user,
+        onLogout: widget.onLogout,
         isDark: widget.isDark,
         onThemeChanged: widget.onThemeChanged,
       ),
@@ -741,8 +927,10 @@ class GroupDetailScreen extends StatelessWidget {
 }
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({required this.isDark, required this.onThemeChanged, super.key});
+  const ProfileScreen({required this.user, required this.onLogout, required this.isDark, required this.onThemeChanged, super.key});
 
+  final MotoConnectUser user;
+  final VoidCallback onLogout;
   final bool isDark;
   final ValueChanged<bool> onThemeChanged;
 
@@ -768,6 +956,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
     padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
     children: [
       const _PageHeading(title: 'Профиль', subtitle: 'Настройки MotoConnect', icon: Icons.person),
+      Card(
+        child: ListTile(
+          leading: const CircleAvatar(
+            backgroundColor: Color(0xFF554900),
+            child: Icon(Icons.badge_outlined, color: motoYellow),
+          ),
+          title: Text(widget.user.displayName),
+          subtitle: Text('Твой постоянный ID: ${widget.user.id}'),
+          trailing: IconButton(
+            tooltip: 'Копировать ID',
+            icon: const Icon(Icons.copy, color: motoYellow),
+            onPressed: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Твой ID: ${widget.user.id}')),
+              );
+            },
+          ),
+        ),
+      ),
+      Card(
+        child: ListTile(
+          leading: const Icon(Icons.logout, color: motoYellow),
+          title: const Text('Выйти из аккаунта'),
+          subtitle: const Text('Твой ID останется за тобой'),
+          onTap: widget.onLogout,
+        ),
+      ),
       Card(
         child: Padding(
           padding: const EdgeInsets.all(16),
