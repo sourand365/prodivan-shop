@@ -21,7 +21,7 @@ app.use(express.json({ limit: '16kb' }));
 
 function authenticateApprovedUser(req, res, next) {
   const header = req.get('authorization') || '';
-  const match = header.match(/^Bearer\\s+(.+)$/i);
+  const match = header.match(/^Bearer\s+(.+)$/i);
   if (!match) {
     return res.status(401).json({ error: 'Authentication required.' });
   }
@@ -104,5 +104,5 @@ app.post('/api/voice/token', authenticateApprovedUser, async (req, res) => {
 
 const port = Number(process.env.PORT || 8080);
 app.listen(port, '0.0.0.0', () => {
-  process.stdout.write(`MotoConnect voice API listening on port ${port}\\n`);
+  process.stdout.write(`MotoConnect voice API listening on port ${port}\n`);
 });
