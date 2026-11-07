@@ -48,9 +48,8 @@ class _GoogleMotoMapState extends State<GoogleMotoMap> {
     setState(() => _locationGranted = status.isGranted);
   }
 
-  Future<void> _onMapCreated(GoogleMapController controller) async {
+  void _onMapCreated(GoogleMapController controller) {
     _controller = controller;
-    await controller.setMapStyle(_motoSportStyle);
     if (mounted) setState(() => _mapReady = true);
   }
 
@@ -63,7 +62,10 @@ class _GoogleMotoMapState extends State<GoogleMotoMap> {
       return;
     }
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) { await Geolocator.openLocationSettings(); return; }
+    if (!serviceEnabled) {
+      await Geolocator.openLocationSettings();
+      return;
+    }
     try {
       final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
@@ -84,6 +86,7 @@ class _GoogleMotoMapState extends State<GoogleMotoMap> {
     children: [
       GoogleMap(
         initialCameraPosition: _odessa,
+        style: _motoSportStyle,
         onMapCreated: _onMapCreated,
         myLocationEnabled: _locationGranted,
         myLocationButtonEnabled: false,
