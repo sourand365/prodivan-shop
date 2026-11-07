@@ -61,13 +61,15 @@ class LiveKitVoiceService extends ChangeNotifier {
     return List.unmodifiable(result);
   }
 
-  Future<void> requestVoicePermissions() async {
-    final microphone = await Permission.microphone.request();
-    if (!microphone.isGranted) {
-      throw StateError('Microphone permission is required for voice calls.');
+  Future<void> requestVoicePermissions({bool microphone = true}) async {
+    if (microphone) {
+      final status = await Permission.microphone.request();
+      if (!status.isGranted) {
+        throw StateError('Microphone permission is required to speak.');
+      }
     }
 
-    if (Platform.isAndroid) {
+    if (microphone && Platform.isAndroid) {
       final bluetooth = await Permission.bluetoothConnect.request();
       if (!bluetooth.isGranted && !bluetooth.isLimited) {
         throw StateError('Bluetooth permission is required for headset routing.');
@@ -125,6 +127,7 @@ class LiveKitVoiceService extends ChangeNotifier {
   Future<void> connect({
     required String serverUrl,
     required String participantToken,
+    bool microphoneEnabled = true,
   }) async {
     if (serverUrl.isEmpty || participantToken.isEmpty) {
       throw ArgumentError(
@@ -132,7 +135,7 @@ class LiveKitVoiceService extends ChangeNotifier {
       );
     }
 
-    await requestVoicePermissions();
+    await requestVoicePermissions(microphone: microphoneEnabled);
     await disconnect();
 
     // Keep audio focus under LiveKit's own manager so WebRTC routing and
@@ -158,7 +161,7 @@ class LiveKitVoiceService extends ChangeNotifier {
     );
     try {
       await room.connect(serverUrl, participantToken);
-      await room.localParticipant?.setMicrophoneEnabled(true);
+      await room.localParticipant?.setMicrophoneEnabled(microphoneEnabled);
 
       // LiveKit now owns transient may-duck focus for the call lifecycle.
       room.addListener(_onRoomChanged);
@@ -193,6 +196,7 @@ class LiveKitVoiceService extends ChangeNotifier {
     if (room == null) {
       throw StateError('Not connected to a voice room.');
     }
+    if (enabled) await requestVoicePermissions();
     await room.localParticipant?.setMicrophoneEnabled(enabled);
     notifyListeners();
   }
