@@ -17,7 +17,7 @@ export function distanceMetres(a, b) {
 
 export function getFreshPresence(rows, now = Date.now()) {
   return rows.filter((row) =>
-    row.enabled === true &&
+    (row.enabled === true || row.enabled === 1) &&
     Number.isFinite(row.latitude) &&
     Number.isFinite(row.longitude) &&
     row.latitude >= -90 && row.latitude <= 90 &&
