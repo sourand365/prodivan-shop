@@ -39,3 +39,8 @@ test('room name is stable regardless of input order', () => {
   const a = [row('A', 0), row('B', 0.001)];
   assert.equal(proximityRoomName(a), proximityRoomName([...a].reverse()));
 });
+
+test('accepts SQLite integer enabled flags', () => {
+  const sqliteRow = { ...row('sqlite-user', 0.001), enabled: 1 };
+  assert.equal(getFreshPresence([sqliteRow], now).length, 1);
+});
