@@ -326,6 +326,11 @@ class _GroupsScreenState extends State<GroupsScreen> {
             leading: const CircleAvatar(backgroundColor: Color(0xFF554900), child: Icon(Icons.groups, color: motoYellow)),
             title: Text(name),
             subtitle: const Text('Владелец: вы · локальный черновик'),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => GroupDetailScreen(name: name),
+              ),
+            ),
             trailing: IconButton(
               tooltip: 'Удалить черновик',
               icon: const Icon(Icons.delete_outline),
@@ -336,6 +341,62 @@ class _GroupsScreenState extends State<GroupsScreen> {
       const SizedBox(height: 8),
       const _FeatureTile(icon: Icons.timer_outlined, title: 'Правила активности', detail: 'Неактивная группа удаляется через 7 полных суток. Владельцу отправляется предупреждение за 24 часа. Серверный таймер подключим вместе с авторизацией.'),
     ],
+  );
+}
+
+class GroupDetailScreen extends StatelessWidget {
+  const GroupDetailScreen({required this.name, super.key});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: Text(name),
+      leading: IconButton(
+        tooltip: 'Назад к группам',
+        icon: const Icon(Icons.arrow_back),
+        onPressed: () => Navigator.of(context).pop(),
+      ),
+    ),
+    body: ListView(
+      padding: const EdgeInsets.all(18),
+      children: [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const CircleAvatar(
+                  radius: 30,
+                  backgroundColor: Color(0xFF554900),
+                  child: Icon(Icons.groups, color: motoYellow, size: 32),
+                ),
+                const SizedBox(height: 14),
+                Text(name, style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
+                const SizedBox(height: 6),
+                Text(
+                  'Локальная группа · владелец: вы',
+                  style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        const _FeatureTile(
+          icon: Icons.people_outline,
+          title: 'Участники',
+          detail: 'Пока только вы. Приглашение участников станет доступно после подключения авторизации.',
+        ),
+        const _FeatureTile(
+          icon: Icons.headset_mic_outlined,
+          title: 'Голосовая связь',
+          detail: 'Голосовой канал ещё не подключён. Этот экран пока работает как локальный черновик группы.',
+        ),
+      ],
+    ),
   );
 }
 
