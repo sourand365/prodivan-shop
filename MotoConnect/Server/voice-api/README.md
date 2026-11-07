@@ -1,52 +1,87 @@
-# MotoConnect Voice API
+# MotoConnect Authentication, Presence and Voice API
 
-A small Node.js service that issues short-lived LiveKit participant tokens.
+Node.js service for Telegram sign-in, permanent MotoConnect IDs, session management, proximity grouping and short-lived LiveKit participant tokens.
 
-## Required environment variables
+## Required server configuration
 
-Copy .env.example into the deployment environment and set real values there. Never commit real credentials.
+Copy `.env.example` into the deployment environment. Do not commit real values.
 
-- PORT — HTTP port (defaults to 8080).
-- LIVEKIT_URL — LiveKit Cloud WebSocket URL, usually wss://...
-- LIVEKIT_API_KEY — LiveKit project API key.
-- LIVEKIT_API_SECRET — LiveKit project API secret. Server-side only.
-- APP_JWT_SECRET — secret used by the MotoConnect authentication service to sign app access tokens.
+- `APP_JWT_SECRET`: at least 32 random characters.
+- `TELEGRAM_BOT_TOKEN`: token from BotFather.
+- `TELEGRAM_BOT_USERNAME`: bot username without the @ (the @ is also accepted).
+- `DB_PATH`: persistent writable SQLite path. The database must survive deploy/restart.
+- `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`: LiveKit Cloud credentials, server-side only.
+- `PORT`: deployment port (defaults to 8080).
 
-## Authentication contract
+Run one service instance with a persistent disk for the SQLite database. Do not run multiple replicas against a local SQLite file. For horizontal scaling, move users, sessions and presence to PostgreSQL/Redis.
 
-The authentication service must issue HS256 JWTs with issuer motoconnect-auth and these claims:
+## Telegram sign-in flow
 
-- sub: stable MotoConnect user ID.
-- approved: true only after admin approval.
-- blocked: true for blocked accounts.
-- voiceRooms: array of room names the user is currently permitted to join.
-- name: optional display name.
+1. App calls `POST /api/auth/challenge`.
+2. App opens the returned `botUrl` in Telegram.
+3. User presses Start. The bot verifies the one-time challenge and creates or finds the Telegram-linked account.
+4. App polls `POST /api/auth/challenge/poll` with the returned `challengeId`.
+5. On success, app receives a 15-minute access token, a rotating 30-day refresh token, and the permanent MotoConnect user ID.
 
-The voice API checks these claims and verifies room membership before minting a token. Do not expose this endpoint to unauthenticated clients.
+The first verified Telegram account receives an ID such as `MC-XXXXXXXXXX`. The ID is independent of the Telegram numeric ID and remains the same after logout/login.
 
-## Endpoint
+## Session endpoints
 
-POST /api/voice/token
+- `POST /api/auth/challenge` — create a one-time sign-in link.
+- `POST /api/auth/challenge/poll` — poll for Telegram confirmation.
+- `POST /api/auth/refresh` — rotate refresh token and issue a new access token.
+- `GET /api/auth/me` — current account and stable ID.
+- `POST /api/auth/logout` — revoke this session and remove current proximity presence.
 
-Authorization: Bearer <MotoConnect app access token>
+Store access/refresh tokens securely on the device (Android Keystore-backed secure storage). Never log tokens. Logout revokes the refresh session; access tokens are also checked against the session database on each authenticated request.
 
-JSON body:
+## Proximity endpoints
 
-{
-  "roomName": "proximity-main"
-}
+- `POST /api/presence` with `{ "enabled": true, "latitude": 46.48, "longitude": 30.72 }` — opt in and update latest location.
+- `POST /api/presence` with `{ "enabled": false }` — opt out immediately.
+- `GET /api/presence/me` — current connected component and opaque voice room ID.
 
-Success response contains serverUrl and participantToken. The participant token expires after five minutes and is scoped to that one room.
+Only opted-in, non-blocked accounts with a location update no older than 90 seconds participate. Each pair within 1,000 metres is connected; the full connected component is returned, so chain-connected users can hear one another even when the endpoints are more than 1 km apart. The map should draw a 1 km circle around the current user's own marker.
 
-## Local run
+Other users' coordinates are rounded to four decimal places before being returned. The server stores only the latest position; it does not create a location trail. The app must explain location sharing and ask permission before opting in.
 
-1. Install Node.js 20 or newer.
-2. Run npm install.
-3. Set the environment variables listed above.
-4. Run npm start.
+## Voice token endpoint
 
-The /health endpoint is intended for deployment health checks.
+- `POST /api/voice/token` with `{ "roomName": "<roomName from presence response>" }`.
+- Requires a valid app access token.
+- Server recomputes current proximity membership and refuses arbitrary/stale room names.
+- Participant token is scoped to the current room and expires after five minutes.
 
-## Important
+LiveKit secrets must never be placed in the Flutter APK.
 
-This API is not a substitute for the main MotoConnect authentication and membership database. Until that service exists and issues the documented JWT claims, token issuance must remain unavailable. Never use a hard-coded shared token or put LiveKit API secrets in the Flutter app.
+## Local run and checks
+
+Node.js 20+:
+
+```sh
+npm install
+npm run check
+npm test
+cp .env.example .env
+# Fill in real server-only credentials in .env
+npm start
+```
+
+`GET /health` is the deployment health check.
+
+## Current integration status
+
+The Flutter client now includes Telegram deep-link sign-in, secure token storage, session restore and logout, opt-in foreground presence, a 1 km map circle with approximate nearby markers, and automatic listen-only LiveKit proximity-room joining. The microphone remains off until the rider enables it. The complete flow still requires a deployed HTTPS API, valid Telegram bot token, LiveKit server credentials, and real-device testing with at least two accounts.
+
+## Deploy on Render
+
+The repository includes `render.yaml` and a Dockerfile for a single-instance Render web service with a persistent SQLite disk.
+
+1. The Telegram bot username is already configured as `@MotoConnect_bot`. Create this exact bot with Telegram's official `@BotFather` if it has not already been created. Copy its bot token directly into Render's secret environment variable; do not send it in chat or commit it.
+2. In Render, create a new Blueprint and connect this repository. Select branch `feat/motoconnect-auth-presence` while testing.
+3. Render reads `MotoConnect/Server/voice-api/render.yaml`. Confirm the persistent disk is attached at `/var/data`.
+4. In the service environment, set `TELEGRAM_BOT_TOKEN` and the three LiveKit values. `TELEGRAM_BOT_USERNAME` is prefilled as `MotoConnect_bot`; `APP_JWT_SECRET` is generated by the blueprint.
+5. Wait for deployment and confirm `https://<your-service>.onrender.com/health` returns JSON with status `ok`.
+6. Add the resulting HTTPS base URL as the GitHub Actions repository secret `MOTOCONNECT_API_URL`, then run the MotoConnect Android APK workflow to build an APK configured for that server.
+
+The service must stay on a paid plan that supports its persistent disk. Do not scale it to multiple instances while using SQLite and Telegram long polling. Back up the persistent disk regularly.

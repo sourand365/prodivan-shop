@@ -96,7 +96,9 @@ jobs:
       - name: Analyze
         run: flutter analyze
       - name: Build debug APK
-        run: flutter build apk --debug
+        env:
+          MOTOCONNECT_API_URL: ${{ secrets.MOTOCONNECT_API_URL }}
+        run: flutter build apk --debug --dart-define=MOTOCONNECT_API_URL="$MOTOCONNECT_API_URL"
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:

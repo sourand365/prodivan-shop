@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: motoconnect-api
+    runtime: docker
+    plan: starter
+    rootDir: MotoConnect/Server/voice-api
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    disk:
+      name: motoconnect-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "8080"
+      - key: DB_PATH
+        value: /var/data/motoconnect.sqlite
+      - key: APP_JWT_SECRET
+        generateValue: true
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_BOT_USERNAME
+        value: MotoConnect_bot
+      - key: LIVEKIT_URL
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
