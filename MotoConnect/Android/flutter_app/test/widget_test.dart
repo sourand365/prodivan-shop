@@ -4,8 +4,9 @@ import 'package:moto_connect/main.dart';
 import 'package:moto_connect/features/voice/livekit_voice_service.dart';
 
 Future<void> pumpNavigation(WidgetTester tester) async {
-  // The map uses a repeating animation inside IndexedStack, so avoid
-  // pumpAndSettle(): it would wait forever even after navigation completed.
+  // Give Navigator a frame to install the route transition, then advance it.
+  // Avoid pumpAndSettle(): the map has a repeating animation in IndexedStack.
+  await tester.pump();
   await tester.pump(const Duration(milliseconds: 500));
 }
 
