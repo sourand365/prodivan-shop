@@ -13,10 +13,12 @@ const Color _motoYellow = Color(0xFFFFD400);
 class GoogleMotoMap extends StatefulWidget {
   const GoogleMotoMap({
     required this.authService,
+    required this.onVoiceRoomChanged,
     super.key,
   });
 
   final MotoConnectAuthService authService;
+  final void Function(String? roomName, {bool immediate}) onVoiceRoomChanged;
 
   @override
   State<GoogleMotoMap> createState() => _GoogleMotoMapState();
@@ -108,6 +110,7 @@ class _GoogleMotoMapState extends State<GoogleMotoMap>
       } catch (_) {
         // The server also expires presence automatically after 90 seconds.
       }
+      widget.onVoiceRoomChanged(null, immediate: true);
       if (mounted) {
         setState(() {
           _proximityEnabled = false;
@@ -140,6 +143,7 @@ class _GoogleMotoMapState extends State<GoogleMotoMap>
         _proximityEnabled = true;
         _participants = _readParticipants(response);
       });
+      widget.onVoiceRoomChanged(response['roomName'] as String?);
       _presenceTimer?.cancel();
       _presenceTimer = Timer.periodic(
         const Duration(seconds: 20),
@@ -176,7 +180,9 @@ class _GoogleMotoMapState extends State<GoogleMotoMap>
         _participants = _readParticipants(response);
         _presenceError = null;
       });
+      widget.onVoiceRoomChanged(response['roomName'] as String?);
     } catch (error) {
+      widget.onVoiceRoomChanged(null);
       if (mounted) setState(() => _presenceError = error.toString());
     } finally {
       _updatingPresence = false;
