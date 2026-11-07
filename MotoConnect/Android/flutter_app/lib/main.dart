@@ -513,7 +513,7 @@ class GroupDetailScreen extends StatelessWidget {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
               builder: (_) => VoiceRoomScreen(
-                roomName: 'group-${widget.name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9_-]+'), '-') }',
+                roomName: 'group-${name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9_-]+'), '-') }',
                 title: 'Голосовая связь',
               ),
             )),
