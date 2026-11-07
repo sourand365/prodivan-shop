@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'features/auth/motoconnect_auth_service.dart';
@@ -24,6 +26,64 @@ typedef VoiceTokenProvider = Future<VoiceConnectionCredentials> Function(
   String roomName,
 );
 
+typedef ProximityRoomChanged = void Function(
+  String? roomName, {
+  bool immediate,
+});
+
+class ProximityVoiceController {
+  ProximityVoiceController(this.authService);
+
+  final MotoConnectAuthService authService;
+  final LiveKitVoiceService _service = LiveKitVoiceService();
+  Timer? _leaveTimer;
+  String? _roomName;
+  bool _microphoneEnabled = false;
+
+  Future<void> updateRoom(String? nextRoom, {bool immediate = false}) async {
+    _leaveTimer?.cancel();
+    if (nextRoom == null) {
+      if (immediate) {
+        _roomName = null;
+        await _service.disconnect();
+      } else if (_roomName != null || _service.hasRoom) {
+        _leaveTimer = Timer(const Duration(seconds: 30), () async {
+          _roomName = null;
+          await _service.disconnect();
+        });
+      }
+      return;
+    }
+
+    if (_roomName == nextRoom && _service.hasRoom) return;
+    _roomName = nextRoom;
+    try {
+      final credentials = await authService.requestVoiceToken(nextRoom);
+      await _service.connect(
+        serverUrl: credentials['serverUrl']!,
+        participantToken: credentials['participantToken']!,
+        microphoneEnabled: _microphoneEnabled,
+      );
+    } catch (_) {
+      _roomName = null;
+      await _service.disconnect();
+    }
+  }
+
+  Future<void> setMicrophoneEnabled(bool enabled) async {
+    _microphoneEnabled = enabled;
+    if (_service.hasRoom) {
+      await _service.setMicrophoneEnabled(enabled);
+    }
+  }
+
+  Future<void> dispose() async {
+    _leaveTimer?.cancel();
+    await _service.disconnect();
+    _service.dispose();
+  }
+}
+
 class MotoConnectApp extends StatefulWidget {
   const MotoConnectApp({this.voiceTokenProvider, this.testUser, super.key});
 
@@ -37,6 +97,7 @@ class MotoConnectApp extends StatefulWidget {
 class _MotoConnectAppState extends State<MotoConnectApp> {
   ThemeMode _themeMode = ThemeMode.dark;
   final MotoConnectAuthService _authService = MotoConnectAuthService();
+  late final ProximityVoiceController _proximityVoice = ProximityVoiceController(_authService);
   bool _authLoading = true;
   MotoConnectUser? _user;
 
@@ -84,6 +145,12 @@ class _MotoConnectAppState extends State<MotoConnectApp> {
         participantToken: credentials['participantToken']!,
       );
     };
+  }
+
+  @override
+  void dispose() {
+    unawaited(_proximityVoice.dispose());
+    super.dispose();
   }
 
   void _toggleTheme(bool isDark) {
@@ -141,6 +208,7 @@ class _MotoConnectAppState extends State<MotoConnectApp> {
               : MotoShell(
                   voiceTokenProvider: _voiceTokenProvider,
                   authService: _authService,
+                  proximityVoice: _proximityVoice,
                   user: _user!,
                   onLogout: _logout,
                   isDark: _themeMode == ThemeMode.dark,
@@ -280,6 +348,7 @@ class MotoShell extends StatefulWidget {
   const MotoShell({
     required this.voiceTokenProvider,
     required this.authService,
+    required this.proximityVoice,
     required this.user,
     required this.onLogout,
     required this.isDark,
@@ -289,6 +358,7 @@ class MotoShell extends StatefulWidget {
 
   final VoiceTokenProvider? voiceTokenProvider;
   final MotoConnectAuthService authService;
+  final ProximityVoiceController proximityVoice;
   final MotoConnectUser user;
   final VoidCallback onLogout;
   final bool isDark;
@@ -300,15 +370,30 @@ class MotoShell extends StatefulWidget {
 
 class _MotoShellState extends State<MotoShell> {
   int _index = 0;
-  bool _micEnabled = true;
+  bool _micEnabled = false;
+
+  Future<void> _toggleMicrophone() async {
+    final next = !_micEnabled;
+    try {
+      await widget.proximityVoice.setMicrophoneEnabled(next);
+      if (mounted) setState(() => _micEnabled = next);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.toString())),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final pages = <Widget>[
       HomeMapScreen(
         authService: widget.authService,
+        proximityVoice: widget.proximityVoice,
         micEnabled: _micEnabled,
-        onMicPressed: () => setState(() => _micEnabled = !_micEnabled),
+        onMicPressed: _toggleMicrophone,
         onChannelPressed: () => setState(() => _index = 1),
         onChatPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ChatsScreen())),
       ),
@@ -341,6 +426,7 @@ class _MotoShellState extends State<MotoShell> {
 class HomeMapScreen extends StatelessWidget {
   const HomeMapScreen({
     required this.authService,
+    required this.proximityVoice,
     required this.micEnabled,
     required this.onMicPressed,
     required this.onChannelPressed,
@@ -349,6 +435,7 @@ class HomeMapScreen extends StatelessWidget {
   });
 
   final MotoConnectAuthService authService;
+  final ProximityVoiceController proximityVoice;
   final bool micEnabled;
   final VoidCallback onMicPressed;
   final VoidCallback onChannelPressed;
@@ -387,7 +474,15 @@ class HomeMapScreen extends StatelessWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  GoogleMotoMap(authService: authService),
+                  GoogleMotoMap(
+                    authService: authService,
+                    onVoiceRoomChanged: (roomName, {immediate = false}) {
+                      unawaited(proximityVoice.updateRoom(
+                        roomName,
+                        immediate: immediate,
+                      ));
+                    },
+                  ),
                   Positioned(left: 14, top: 14, child: _mapLabel(context, 'ОДЕССА', Icons.location_on)),
                 ],
               ),
