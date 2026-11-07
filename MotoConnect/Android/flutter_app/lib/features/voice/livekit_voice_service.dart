@@ -87,8 +87,8 @@ class LiveKitVoiceService {
     );
     try {
       await room.connect(serverUrl, participantToken);
-      _room = room;
       await room.localParticipant?.setMicrophoneEnabled(true);
+      _room = room;
     } catch (_) {
       await room.disconnect();
       rethrow;
