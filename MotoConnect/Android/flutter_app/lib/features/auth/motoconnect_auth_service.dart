@@ -144,6 +144,29 @@ class MotoConnectAuthService {
     await _storage.write(key: 'mc_refresh_token', value: _refreshToken);
   }
 
+  Future<Map<String, dynamic>> updatePresence({
+    required bool enabled,
+    double? latitude,
+    double? longitude,
+  }) async {
+    if (_accessToken == null) throw StateError('Сначала войди в аккаунт.');
+    return _request(
+      'POST',
+      '/api/presence',
+      bearer: _accessToken,
+      body: {
+        'enabled': enabled,
+        if (latitude != null) 'latitude': latitude,
+        if (longitude != null) 'longitude': longitude,
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>> refreshPresence() async {
+    if (_accessToken == null) throw StateError('Сначала войди в аккаунт.');
+    return _request('GET', '/api/presence/me', bearer: _accessToken);
+  }
+
   Future<Map<String, String>> requestVoiceToken(String roomName) async {
     if (_accessToken == null) throw StateError('Сначала войди в аккаунт.');
     final result = await _request(
