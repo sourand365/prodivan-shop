@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'features/map/google_moto_map.dart';
 
 void main() {
   runApp(const MotoConnectApp());
@@ -167,28 +168,9 @@ class HomeMapScreen extends StatelessWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  CustomPaint(painter: _MapPlaceholderPainter(isDark: isDark)),
+                  const GoogleMotoMap(),
                   Positioned(left: 14, top: 14, child: _mapLabel(context, 'ОДЕССА', Icons.location_on)),
                   Positioned(right: 14, top: 14, child: _mapAction(context, Icons.my_location)),
-                  Positioned(left: 22, top: 112, child: _mapPin(isDark, 'МК')),
-                  Positioned(right: 48, top: 178, child: _mapPin(isDark, 'АК')),
-                  Positioned(left: 90, bottom: 160, child: _mapPin(isDark, 'Я')),
-                  Positioned(
-                    left: 14, right: 14, bottom: 18,
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: isDark ? const Color(0xE6171717) : const Color(0xEFFFFFFF),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: motoYellow.withValues(alpha: 0.45)),
-                      ),
-                      child: const Row(children: [
-                        Icon(Icons.info_outline, color: motoYellow, size: 18),
-                        SizedBox(width: 8),
-                        Expanded(child: Text('Карта и курьеры появятся после подключения GPS и сервера', style: TextStyle(fontSize: 11), maxLines: 2)),
-                      ]),
-                    ),
-                  ),
                 ],
               ),
             ),
