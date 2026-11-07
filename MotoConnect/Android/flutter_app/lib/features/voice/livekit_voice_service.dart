@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:livekit_client/livekit_client.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 /// Thin LiveKit adapter for MotoConnect.
 ///
@@ -9,6 +12,21 @@ class LiveKitVoiceService {
 
   bool get hasRoom => _room != null;
 
+  /// Requests only the permissions needed for voice and Android headset routing.
+  Future<void> requestVoicePermissions() async {
+    final microphone = await Permission.microphone.request();
+    if (!microphone.isGranted) {
+      throw StateError('Microphone permission is required for voice calls.');
+    }
+
+    if (Platform.isAndroid) {
+      final bluetooth = await Permission.bluetoothConnect.request();
+      if (!bluetooth.isGranted && !bluetooth.isLimited) {
+        throw StateError('Bluetooth permission is required for headset routing.');
+      }
+    }
+  }
+
   Future<void> connect({
     required String serverUrl,
     required String participantToken,
@@ -17,6 +35,7 @@ class LiveKitVoiceService {
       throw ArgumentError('LiveKit server URL and participant token are required.');
     }
 
+    await requestVoicePermissions();
     await disconnect();
 
     final room = Room();
