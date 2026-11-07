@@ -319,16 +319,16 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          Card(
+          const Card(
             child: ListTile(
-              leading: const Icon(Icons.people_outline),
+              leading: Icon(Icons.people_outline),
               title: const Text('Участники'),
               subtitle: const Text('Пока никто не подключён'),
             ),
           ),
-          Card(
+          const Card(
             child: ListTile(
-              leading: const Icon(Icons.mic_off_outlined),
+              leading: Icon(Icons.mic_off_outlined),
               title: const Text('Микрофон'),
               subtitle: const Text('Будет доступен после подключения'),
               trailing: const Icon(Icons.lock_outline),
@@ -674,31 +674,6 @@ class _ChatsScreenState extends State<ChatsScreen> {
         ]),
       )),
     ]),
-  );
-}
-
-class _SectionPage extends StatelessWidget {
-  const _SectionPage({required this.title, required this.subtitle, required this.icon, required this.children});
-
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
-    children: [
-      Row(children: [
-        Icon(icon, color: motoYellow, size: 30),
-        const SizedBox(width: 10),
-        Text(title, style: const TextStyle(fontSize: 27, fontWeight: FontWeight.w900)),
-      ]),
-      const SizedBox(height: 5),
-      Text(subtitle, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
-      const SizedBox(height: 22),
-      ...children,
-    ],
   );
 }
 
