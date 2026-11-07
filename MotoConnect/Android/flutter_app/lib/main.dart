@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'features/map/google_moto_map.dart';
+import 'features/voice/livekit_voice_service.dart';
 
 void main() {
   runApp(const MotoConnectApp());
@@ -225,17 +226,131 @@ class HomeMapScreen extends StatelessWidget {
 class CallsScreen extends StatelessWidget {
   const CallsScreen({super.key});
 
+  void _openVoiceRoom(BuildContext context, String roomName, String title) {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => VoiceRoomScreen(roomName: roomName, title: title),
+    ));
+  }
+
   @override
-  Widget build(BuildContext context) => const _SectionPage(
-    title: 'Звонки',
-    subtitle: 'Личные вызовы и голосовые каналы',
-    icon: Icons.headset_mic,
+  Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
     children: [
-      _FeatureTile(icon: Icons.wifi_tethering, title: 'Общий канал рядом', detail: 'Связь с доступными курьерами в пределах цепочки 1 км'),
-      _FeatureTile(icon: Icons.call, title: 'Личные звонки', detail: 'Звонок конкретному участнику'),
-      _FeatureTile(icon: Icons.people_alt_outlined, title: 'Участники канала', detail: 'Список подключённых появится после подключения сервера'),
+      const _PageHeading(title: 'Звонки', subtitle: 'Голосовые каналы MotoConnect', icon: Icons.headset_mic),
+      Card(
+        child: ListTile(
+          leading: const Icon(Icons.wifi_tethering, color: motoYellow),
+          title: const Text('Общий канал рядом'),
+          subtitle: const Text('Голосовая комната для курьеров поблизости'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => _openVoiceRoom(context, 'nearby-channel', 'Общий канал рядом'),
+        ),
+      ),
+      Card(
+        child: ListTile(
+          leading: const Icon(Icons.call, color: motoYellow),
+          title: const Text('Личный звонок'),
+          subtitle: const Text('Подготовка личных вызовов'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => _openVoiceRoom(context, 'direct-call', 'Личный звонок'),
+        ),
+      ),
+      const _FeatureTile(
+        icon: Icons.security,
+        title: 'Защищённое подключение',
+        detail: 'Голосовой сервер выдаёт короткоживущий токен только после проверки аккаунта и членства в комнате.',
+      ),
     ],
   );
+}
+
+class VoiceRoomScreen extends StatefulWidget {
+  const VoiceRoomScreen({required this.roomName, required this.title, super.key});
+
+  final String roomName;
+  final String title;
+
+  @override
+  State<VoiceRoomScreen> createState() => _VoiceRoomScreenState();
+}
+
+class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
+  final LiveKitVoiceService _voiceService = LiveKitVoiceService();
+
+  @override
+  void dispose() {
+    _voiceService.disconnect();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.title)),
+      body: ListView(
+        padding: const EdgeInsets.all(18),
+        children: [
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  const CircleAvatar(
+                    radius: 38,
+                    backgroundColor: Color(0xFF554900),
+                    child: Icon(Icons.headset_mic, color: motoYellow, size: 38),
+                  ),
+                  const SizedBox(height: 14),
+                  const Text('Голосовая комната', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 6),
+                  Text(widget.roomName, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                  const SizedBox(height: 14),
+                  const Chip(
+                    avatar: Icon(Icons.lock_outline, size: 17),
+                    label: Text('Ожидает авторизацию'),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Подключение станет доступно после входа в аккаунт и получения персонального временного токена. Это защищает голосовые комнаты от посторонних.',
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.people_outline),
+              title: const Text('Участники'),
+              subtitle: const Text('Пока никто не подключён'),
+            ),
+          ),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.mic_off_outlined),
+              title: const Text('Микрофон'),
+              subtitle: const Text('Будет доступен после подключения'),
+              trailing: const Icon(Icons.lock_outline),
+              enabled: false,
+            ),
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: null,
+            icon: const Icon(Icons.login),
+            label: const Text('Войти в голосовую комнату'),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Комната подготовлена. Реальный звук и список участников появятся после подключения авторизации к LiveKit API.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _CreateGroupDialog extends StatefulWidget {
@@ -390,10 +505,19 @@ class GroupDetailScreen extends StatelessWidget {
           title: 'Участники',
           detail: 'Пока только вы. Приглашение участников станет доступно после подключения авторизации.',
         ),
-        const _FeatureTile(
-          icon: Icons.headset_mic_outlined,
-          title: 'Голосовая связь',
-          detail: 'Голосовой канал ещё не подключён. Этот экран пока работает как локальный черновик группы.',
+        Card(
+          child: ListTile(
+            leading: const Icon(Icons.headset_mic_outlined, color: motoYellow),
+            title: const Text('Голосовая связь'),
+            subtitle: const Text('Открыть голосовую комнату группы'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => VoiceRoomScreen(
+                roomName: 'group-${widget.name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9_-]+'), '-') }',
+                title: 'Голосовая связь',
+              ),
+            )),
+          ),
         ),
       ],
     ),
