@@ -70,7 +70,7 @@ class MotoConnectAuthService {
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw HttpException(
           decoded['error'] as String? ??
-              'Ошибка сервера (' + response.statusCode.toString() + ').',
+              'Ошибка сервера (${response.statusCode}).',
           uri: uri,
         );
       }
