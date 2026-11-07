@@ -37,6 +37,16 @@ void main() {
     expect(find.text('Голосовая связь'), findsOneWidget);
     expect(find.text('Локальная группа · владелец: вы'), findsOneWidget);
 
+    await tester.tap(find.text('Голосовая связь'));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.text('Голосовая комната'), findsOneWidget);
+    expect(find.text('Ожидает авторизацию'), findsOneWidget);
+    expect(find.text('Войти в голосовую комнату'), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.text('Участники'), findsOneWidget);
+
     await tester.tap(find.byTooltip('Назад к группам'));
     await tester.pump(const Duration(milliseconds: 350));
     expect(find.text('Тестовая команда'), findsOneWidget);
