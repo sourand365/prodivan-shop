@@ -345,7 +345,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             TextField(controller: _vehicle, decoration: const InputDecoration(labelText: 'Мой транспорт', hintText: 'Например, Crosser CR 15', prefixIcon: Icon(Icons.two_wheeler))),
             const SizedBox(height: 14),
             DropdownButtonFormField<String>(
-              value: _status,
+              initialValue: _status,
               decoration: const InputDecoration(labelText: 'Статус'),
               items: const ['На линии', 'Не в сети', 'Занят'].map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
               onChanged: (v) { if (v != null) setState(() => _status = v); },
