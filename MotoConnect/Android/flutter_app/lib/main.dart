@@ -25,9 +25,10 @@ typedef VoiceTokenProvider = Future<VoiceConnectionCredentials> Function(
 );
 
 class MotoConnectApp extends StatefulWidget {
-  const MotoConnectApp({this.voiceTokenProvider, super.key});
+  const MotoConnectApp({this.voiceTokenProvider, this.testUser, super.key});
 
   final VoiceTokenProvider? voiceTokenProvider;
+  final MotoConnectUser? testUser;
 
   @override
   State<MotoConnectApp> createState() => _MotoConnectAppState();
@@ -42,7 +43,12 @@ class _MotoConnectAppState extends State<MotoConnectApp> {
   @override
   void initState() {
     super.initState();
-    _restoreSession();
+    if (widget.testUser != null) {
+      _user = widget.testUser;
+      _authLoading = false;
+    } else {
+      _restoreSession();
+    }
   }
 
   Future<void> _restoreSession() async {
