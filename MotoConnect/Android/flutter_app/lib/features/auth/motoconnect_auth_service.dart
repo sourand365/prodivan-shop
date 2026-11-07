@@ -144,16 +144,38 @@ class MotoConnectAuthService {
     await _storage.write(key: 'mc_refresh_token', value: _refreshToken);
   }
 
+  Future<Map<String, dynamic>> _authorizedRequest(
+    String method,
+    String path, {
+    Map<String, dynamic>? body,
+  }) async {
+    if (_accessToken == null) throw StateError('Сначала войди в аккаунт.');
+    try {
+      return await _request(
+        method,
+        path,
+        bearer: _accessToken,
+        body: body,
+      );
+    } on HttpException {
+      await _refreshSession();
+      return _request(
+        method,
+        path,
+        bearer: _accessToken,
+        body: body,
+      );
+    }
+  }
+
   Future<Map<String, dynamic>> updatePresence({
     required bool enabled,
     double? latitude,
     double? longitude,
   }) async {
-    if (_accessToken == null) throw StateError('Сначала войди в аккаунт.');
-    return _request(
+    return _authorizedRequest(
       'POST',
       '/api/presence',
-      bearer: _accessToken,
       body: {
         'enabled': enabled,
         if (latitude != null) 'latitude': latitude,
@@ -163,15 +185,13 @@ class MotoConnectAuthService {
   }
 
   Future<Map<String, dynamic>> refreshPresence() async {
-    if (_accessToken == null) throw StateError('Сначала войди в аккаунт.');
-    return _request('GET', '/api/presence/me', bearer: _accessToken);
+    return _authorizedRequest('GET', '/api/presence/me');
   }
 
   Future<Map<String, String>> requestVoiceToken(String roomName) async {
-    if (_accessToken == null) throw StateError('Сначала войди в аккаунт.');
-    final result = await _request(
-      'POST', '/api/voice/token',
-      bearer: _accessToken,
+    final result = await _authorizedRequest(
+      'POST',
+      '/api/voice/token',
       body: {'roomName': roomName},
     );
     return {
