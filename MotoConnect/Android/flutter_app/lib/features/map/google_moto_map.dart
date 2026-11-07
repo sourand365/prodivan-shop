@@ -302,7 +302,7 @@ class _GoogleMotoMapState extends State<GoogleMotoMap>
           borderRadius: BorderRadius.circular(14),
           child: SwitchListTile(
             dense: true,
-            activeColor: _motoYellow,
+            activeThumbColor: _motoYellow,
             title: const Text(
               'Слышать рядом · 1 км',
               style: TextStyle(
