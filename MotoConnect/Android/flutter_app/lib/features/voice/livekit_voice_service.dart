@@ -1,19 +1,62 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:livekit_client/livekit_client.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-/// Thin LiveKit adapter for MotoConnect.
-///
-/// The LiveKit API secret must never be stored in this app. The backend must
-/// authenticate the user and issue a short-lived room token before connect().
-class LiveKitVoiceService {
+class VoiceParticipantInfo {
+  const VoiceParticipantInfo({
+    required this.identity,
+    required this.displayName,
+    required this.isLocal,
+    required this.isSpeaking,
+    required this.isMuted,
+  });
+
+  final String identity;
+  final String displayName;
+  final bool isLocal;
+  final bool isSpeaking;
+  final bool isMuted;
+}
+
+/// LiveKit adapter. The API secret stays on the MotoConnect backend.
+class LiveKitVoiceService extends ChangeNotifier {
   Room? _room;
 
   bool get hasRoom => _room != null;
 
-  /// Requests only the permissions needed for voice and Android headset routing.
+  List<VoiceParticipantInfo> get participants {
+    final room = _room;
+    if (room == null) return const [];
+
+    final result = <VoiceParticipantInfo>[];
+    final local = room.localParticipant;
+    if (local != null) {
+      result.add(VoiceParticipantInfo(
+        identity: local.identity,
+        displayName: local.name.isNotEmpty ? local.name : local.identity,
+        isLocal: true,
+        isSpeaking: local.isSpeaking,
+        isMuted: local.isMuted,
+      ));
+    }
+
+    for (final participant in room.remoteParticipants.values) {
+      result.add(VoiceParticipantInfo(
+        identity: participant.identity,
+        displayName: participant.name.isNotEmpty
+            ? participant.name
+            : participant.identity,
+        isLocal: false,
+        isSpeaking: participant.isSpeaking,
+        isMuted: participant.isMuted,
+      ));
+    }
+    return List.unmodifiable(result);
+  }
+
   Future<void> requestVoicePermissions() async {
     final microphone = await Permission.microphone.request();
     if (!microphone.isGranted) {
@@ -28,7 +71,6 @@ class LiveKitVoiceService {
     }
   }
 
-  /// Authenticates with MotoConnect and obtains a room-scoped, short-lived token.
   Future<void> connectFromBackend({
     required Uri tokenEndpoint,
     required String appAccessToken,
@@ -41,7 +83,8 @@ class LiveKitVoiceService {
       throw ArgumentError('An app access token and room name are required.');
     }
 
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 10);
     try {
       final request = await client.postUrl(tokenEndpoint);
       request.headers
@@ -52,17 +95,24 @@ class LiveKitVoiceService {
       final response = await request.close();
       final responseText = await response.transform(utf8.decoder).join();
       if (response.statusCode != HttpStatus.ok) {
-        throw StateError('MotoConnect voice authorization failed (${response.statusCode}).');
+        throw StateError(
+          'MotoConnect voice authorization failed (${response.statusCode}).',
+        );
       }
 
       final payload = jsonDecode(responseText) as Map<String, dynamic>;
       final serverUrl = payload['serverUrl'] as String?;
       final participantToken = payload['participantToken'] as String?;
       if (serverUrl == null || participantToken == null) {
-        throw const FormatException('Voice API response is missing connection details.');
+        throw const FormatException(
+          'Voice API response is missing connection details.',
+        );
       }
 
-      await connect(serverUrl: serverUrl, participantToken: participantToken);
+      await connect(
+        serverUrl: serverUrl,
+        participantToken: participantToken,
+      );
     } finally {
       client.close(force: true);
     }
@@ -73,7 +123,9 @@ class LiveKitVoiceService {
     required String participantToken,
   }) async {
     if (serverUrl.isEmpty || participantToken.isEmpty) {
-      throw ArgumentError('LiveKit server URL and participant token are required.');
+      throw ArgumentError(
+        'LiveKit server URL and participant token are required.',
+      );
     }
 
     await requestVoicePermissions();
@@ -88,11 +140,18 @@ class LiveKitVoiceService {
     try {
       await room.connect(serverUrl, participantToken);
       await room.localParticipant?.setMicrophoneEnabled(true);
+      room.addListener(_onRoomChanged);
       _room = room;
+      notifyListeners();
     } catch (_) {
       await room.disconnect();
+      await room.dispose();
       rethrow;
     }
+  }
+
+  void _onRoomChanged() {
+    notifyListeners();
   }
 
   Future<void> setMicrophoneEnabled(bool enabled) async {
@@ -101,13 +160,17 @@ class LiveKitVoiceService {
       throw StateError('Not connected to a voice room.');
     }
     await room.localParticipant?.setMicrophoneEnabled(enabled);
+    notifyListeners();
   }
 
   Future<void> disconnect() async {
     final room = _room;
     _room = null;
     if (room != null) {
+      room.removeListener(_onRoomChanged);
       await room.disconnect();
+      await room.dispose();
     }
+    notifyListeners();
   }
 }
