@@ -1,0 +1,32 @@
+name: Check MotoConnect Voice API
+
+on:
+  push:
+    paths:
+      - "MotoConnect/Server/voice-api/**"
+      - ".github/workflows/motoconnect-voice-api.yml"
+  pull_request:
+    paths:
+      - "MotoConnect/Server/voice-api/**"
+      - ".github/workflows/motoconnect-voice-api.yml"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: MotoConnect/Server/voice-api
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: MotoConnect/Server/voice-api/package.json
+      - name: Install dependencies
+        run: npm install
+      - name: Check JavaScript syntax
+        run: npm run check
