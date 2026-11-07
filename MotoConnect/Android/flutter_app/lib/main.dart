@@ -210,18 +210,6 @@ class HomeMapScreen extends StatelessWidget {
     child: Row(children: [Icon(icon, color: motoYellow, size: 16), const SizedBox(width: 6), Text(text, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, letterSpacing: 1.2))]),
   );
 
-  Widget _mapAction(BuildContext context, IconData icon) => Container(
-    decoration: BoxDecoration(color: const Color(0xE6101010), borderRadius: BorderRadius.circular(12)),
-    child: IconButton(onPressed: () {}, icon: Icon(icon, color: motoYellow)),
-  );
-
-  Widget _mapPin(bool isDark, String initials) => Container(
-    width: 38, height: 38,
-    decoration: BoxDecoration(color: motoYellow, shape: BoxShape.circle, border: Border.all(color: Colors.black, width: 2), boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 8)]),
-    alignment: Alignment.center,
-    child: Text(initials, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 11)),
-  );
-
   Widget _sideButton(BuildContext context, {required IconData icon, required String label, required VoidCallback onTap}) => OutlinedButton(
     onPressed: onTap,
     style: OutlinedButton.styleFrom(
@@ -340,47 +328,4 @@ class _FeatureTile extends StatelessWidget {
       trailing: const Icon(Icons.chevron_right),
     ),
   );
-}
-
-class _MapPlaceholderPainter extends CustomPainter {
-  _MapPlaceholderPainter({required this.isDark});
-  final bool isDark;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final background = Paint()..color = isDark ? const Color(0xFF202521) : const Color(0xFFDDE5DC);
-    canvas.drawRect(Offset.zero & size, background);
-
-    final blockPaint = Paint()..color = isDark ? const Color(0xFF2B332D) : const Color(0xFFCFD9CE);
-    for (var row = 0; row < 7; row++) {
-      for (var col = 0; col < 5; col++) {
-        final rect = Rect.fromLTWH(col * 92.0 - 20, row * 88.0 - 12, 68, 54);
-        canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(7)), blockPaint);
-      }
-    }
-
-    final roadPaint = Paint()
-      ..color = isDark ? const Color(0xFF414A43) : const Color(0xFFF2F0E7)
-      ..strokeWidth = 13
-      ..style = PaintingStyle.stroke;
-    final road = Path()
-      ..moveTo(-20, size.height * 0.25)
-      ..cubicTo(size.width * 0.25, size.height * 0.18, size.width * 0.55, size.height * 0.43, size.width + 20, size.height * 0.31)
-      ..moveTo(size.width * 0.1, size.height + 10)
-      ..cubicTo(size.width * 0.25, size.height * 0.7, size.width * 0.62, size.height * 0.58, size.width * 0.85, -10);
-    canvas.drawPath(road, roadPaint);
-
-    final yellowRoad = Paint()
-      ..color = motoYellow.withValues(alpha: 0.7)
-      ..strokeWidth = 3
-      ..style = PaintingStyle.stroke;
-    final route = Path()
-      ..moveTo(size.width * 0.12, size.height * 0.72)
-      ..cubicTo(size.width * 0.34, size.height * 0.58, size.width * 0.42, size.height * 0.48, size.width * 0.62, size.height * 0.52)
-      ..cubicTo(size.width * 0.76, size.height * 0.55, size.width * 0.78, size.height * 0.34, size.width * 0.94, size.height * 0.28);
-    canvas.drawPath(route, yellowRoad);
-  }
-
-  @override
-  bool shouldRepaint(covariant _MapPlaceholderPainter oldDelegate) => oldDelegate.isDark != isDark;
 }
