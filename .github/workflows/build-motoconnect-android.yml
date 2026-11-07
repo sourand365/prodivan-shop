@@ -46,19 +46,19 @@ jobs:
 
           manifest = Path("android/app/src/main/AndroidManifest.xml")
           text = manifest.read_text()
+          nl = chr(10)
           if "ACCESS_COARSE_LOCATION" not in text:
-              text = text.replace(
-                  '    <application',
-                  '    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\\n'
-                  '    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\\n'
-                  '    <application',
-                  1,
+              insertion = (
+                  '    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />' + nl
+                  + '    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />' + nl
+                  + '    <application'
               )
+              text = text.replace('    <application', insertion, 1)
           lines = [line for line in text.splitlines()
                    if "com.google.android.geo.API_KEY" not in line]
-          text = "\\n".join(lines)
+          text = nl.join(lines)
           metadata = f'        <meta-data android:name="com.google.android.geo.API_KEY" android:value="{key}" />'
-          text = text.replace('    <application', '    <application\\n' + metadata, 1)
+          text = text.replace('    <application', '    <application' + nl + metadata, 1)
           ET.fromstring(text)
           manifest.write_text(text)
           PY
