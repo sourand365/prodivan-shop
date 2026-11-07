@@ -257,7 +257,7 @@ class CallsScreen extends StatelessWidget {
   const CallsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) => _SectionPage(
+  Widget build(BuildContext context) => const _SectionPage(
     title: 'Звонки',
     subtitle: 'Личные вызовы и голосовые каналы',
     icon: Icons.headset_mic,
@@ -273,7 +273,7 @@ class GroupsScreen extends StatelessWidget {
   const GroupsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) => _SectionPage(
+  Widget build(BuildContext context) => const _SectionPage(
     title: 'Группы',
     subtitle: 'Твои команды и приглашения',
     icon: Icons.groups,
