@@ -170,7 +170,6 @@ class HomeMapScreen extends StatelessWidget {
                 children: [
                   const GoogleMotoMap(),
                   Positioned(left: 14, top: 14, child: _mapLabel(context, 'ОДЕССА', Icons.location_on)),
-                  Positioned(right: 14, top: 14, child: _mapAction(context, Icons.my_location)),
                 ],
               ),
             ),
