@@ -203,7 +203,7 @@ class MotoConnectAuthService {
   Future<void> logout() async {
     try {
       if (_accessToken != null) {
-        await _request('POST', '/api/auth/logout', bearer: _accessToken);
+        await _authorizedRequest('POST', '/api/auth/logout');
       }
     } finally {
       await _clearLocalSession();
