@@ -2,6 +2,7 @@
   "name": "motoconnect-voice-api",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Private LiveKit token API for MotoConnect",
   "main": "server.js",
   "scripts": {
