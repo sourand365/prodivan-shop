@@ -261,7 +261,7 @@ class CallsScreen extends StatelessWidget {
     title: 'Звонки',
     subtitle: 'Личные вызовы и голосовые каналы',
     icon: Icons.headset_mic,
-    children: const [
+    children: [
       _FeatureTile(icon: Icons.wifi_tethering, title: 'Общий канал рядом', detail: 'Связь с доступными курьерами в пределах цепочки 1 км'),
       _FeatureTile(icon: Icons.call, title: 'Личные звонки', detail: 'Звонок конкретному участнику'),
       _FeatureTile(icon: Icons.people_alt_outlined, title: 'Участники канала', detail: 'Список подключённых появится после подключения сервера'),
@@ -277,7 +277,7 @@ class GroupsScreen extends StatelessWidget {
     title: 'Группы',
     subtitle: 'Твои команды и приглашения',
     icon: Icons.groups,
-    children: const [
+    children: [
       _FeatureTile(icon: Icons.group_add, title: 'Создать группу', detail: 'Создание будет доступно после входа в аккаунт'),
       _FeatureTile(icon: Icons.forum_outlined, title: 'Чат группы', detail: 'Общение, фото, видео и голосовые сообщения'),
       _FeatureTile(icon: Icons.timer_outlined, title: 'Активность группы', detail: 'Предупреждение владельцу за 24 часа до удаления'),
