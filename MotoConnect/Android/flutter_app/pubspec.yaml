@@ -12,6 +12,7 @@ dependencies:
   livekit_client: ^2.13.2
   permission_handler: ^13.0.2
   google_maps_flutter: ^2.19.0
+  geolocator: ^14.1.2
 
 dev_dependencies:
   flutter_test:
