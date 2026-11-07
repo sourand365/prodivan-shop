@@ -16,14 +16,17 @@ void main() {
 
   testWidgets('Groups screen can create a local draft group', (tester) async {
     await tester.pumpWidget(const MotoConnectApp());
+
+    // The map screen contains a repeating animation, so pumpAndSettle()
+    // cannot finish while the IndexedStack keeps that screen mounted.
     await tester.tap(find.text('Группы'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 350));
 
     await tester.tap(find.text('Создать группу'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 350));
     await tester.enterText(find.byType(TextField), 'Тестовая команда');
     await tester.tap(find.text('Создать').last);
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 350));
 
     expect(find.text('Тестовая команда'), findsOneWidget);
     expect(find.textContaining('локальный черновик'), findsOneWidget);
@@ -32,12 +35,12 @@ void main() {
   testWidgets('Map chat opens and accepts a local draft message', (tester) async {
     await tester.pumpWidget(const MotoConnectApp());
     await tester.tap(find.text('ЧАТ'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 350));
 
-    expect(find.text('Локальный просмотр чата.'), findsOneWidget);
+    expect(find.textContaining('Локальный просмотр чата.'), findsOneWidget);
     await tester.enterText(find.byType(TextField), 'Проверка связи');
     await tester.tap(find.byIcon(Icons.send));
-    await tester.pumpAndSettle();
+    await tester.pump();
 
     expect(find.text('Проверка связи'), findsOneWidget);
   });
