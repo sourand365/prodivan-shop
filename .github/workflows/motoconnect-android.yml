@@ -41,6 +41,9 @@ jobs:
       - name: Generate Android platform
         run: flutter create --platforms=android --project-name moto_connect .
 
+      - name: Verify Flutter installation
+        run: flutter --version
+
       - name: Install dependencies
         run: flutter pub get
 
