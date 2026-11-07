@@ -31,6 +31,11 @@ jobs:
           cache: true
       - name: Generate Android project
         run: flutter create --platforms=android --project-name moto_connect .
+      - name: Configure Google Maps API key
+        env:
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+        run: |
+          python3 -c 'import os,pathlib; p=pathlib.Path("android/app/src/main/AndroidManifest.xml"); s=p.read_text(); k=os.environ.get("MAPS_API_KEY", "").strip(); p.write_text(s.replace("__MAPS_API_KEY__", k) if k else s)'
       - name: Install packages
         run: flutter pub get
       - name: Analyze
