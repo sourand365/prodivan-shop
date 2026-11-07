@@ -1,0 +1,49 @@
+name: Build MotoConnect Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "MotoConnect/Android/flutter_app/**"
+      - ".github/workflows/build-motoconnect-android.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: MotoConnect/Android/flutter_app
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android project files
+        run: flutter create --platforms=android --project-name moto_connect .
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze Dart source
+        run: flutter analyze
+
+      - name: Build debug APK
+        run: flutter build apk --debug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: moto-connect-android-debug
+          path: MotoConnect/Android/flutter_app/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
