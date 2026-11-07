@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:moto_connect/main.dart';
+import 'package:moto_connect/features/voice/livekit_voice_service.dart';
 
 Future<void> pumpNavigation(WidgetTester tester) async {
   // The map uses a repeating animation inside IndexedStack, so avoid
@@ -9,6 +10,15 @@ Future<void> pumpNavigation(WidgetTester tester) async {
 }
 
 void main() {
+  test('voice service starts disconnected with no participants', () {
+    final service = LiveKitVoiceService();
+
+    expect(service.hasRoom, isFalse);
+    expect(service.participants, isEmpty);
+
+    service.dispose();
+  });
+
   testWidgets('MotoConnect opens the main map screen', (tester) async {
     await tester.pumpWidget(const MotoConnectApp());
 
