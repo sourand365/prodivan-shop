@@ -9,6 +9,7 @@ on:
     branches:
       - "fix/motoconnect-group-dialog-lifecycle"
       - "feat/motoconnect-voice-ui"
+      - "feat/motoconnect-auth-presence"
     paths:
       - "MotoConnect/Android/flutter_app/**"
       - ".github/workflows/motoconnect-android.yml"
@@ -69,7 +70,9 @@ jobs:
           PY
 
       - name: Build debug APK
-        run: flutter build apk --debug
+        env:
+          MOTOCONNECT_API_URL: ${{ secrets.MOTOCONNECT_API_URL }}
+        run: flutter build apk --debug --dart-define=MOTOCONNECT_API_URL="$MOTOCONNECT_API_URL"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
