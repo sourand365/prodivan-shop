@@ -322,16 +322,16 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
           const Card(
             child: ListTile(
               leading: Icon(Icons.people_outline),
-              title: const Text('Участники'),
-              subtitle: const Text('Пока никто не подключён'),
+              title: Text('Участники'),
+              subtitle: Text('Пока никто не подключён'),
             ),
           ),
           const Card(
             child: ListTile(
               leading: Icon(Icons.mic_off_outlined),
-              title: const Text('Микрофон'),
-              subtitle: const Text('Будет доступен после подключения'),
-              trailing: const Icon(Icons.lock_outline),
+              title: Text('Микрофон'),
+              subtitle: Text('Будет доступен после подключения'),
+              trailing: Icon(Icons.lock_outline),
               enabled: false,
             ),
           ),
