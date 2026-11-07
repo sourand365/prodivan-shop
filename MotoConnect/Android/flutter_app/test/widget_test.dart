@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:moto_connect/main.dart';
+import 'package:moto_connect/features/auth/motoconnect_auth_service.dart';
 import 'package:moto_connect/features/voice/livekit_voice_service.dart';
 
 Future<void> pumpNavigation(WidgetTester tester) async {
@@ -21,7 +22,7 @@ void main() {
   });
 
   testWidgets('MotoConnect opens the main map screen', (tester) async {
-    await tester.pumpWidget(const MotoConnectApp());
+    await tester.pumpWidget(const MotoConnectApp(testUser: MotoConnectUser(id: 'MC-TEST000001', displayName: 'Test User')));
 
     expect(find.text('MOTO'), findsOneWidget);
     expect(find.text('CONNECT'), findsOneWidget);
