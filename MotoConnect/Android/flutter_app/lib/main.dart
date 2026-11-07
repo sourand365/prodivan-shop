@@ -8,8 +8,24 @@ void main() {
 
 const Color motoYellow = Color(0xFFFFD400);
 
+class VoiceConnectionCredentials {
+  const VoiceConnectionCredentials({
+    required this.serverUrl,
+    required this.participantToken,
+  });
+
+  final String serverUrl;
+  final String participantToken;
+}
+
+typedef VoiceTokenProvider = Future<VoiceConnectionCredentials> Function(
+  String roomName,
+);
+
 class MotoConnectApp extends StatefulWidget {
-  const MotoConnectApp({super.key});
+  const MotoConnectApp({this.voiceTokenProvider, super.key});
+
+  final VoiceTokenProvider? voiceTokenProvider;
 
   @override
   State<MotoConnectApp> createState() => _MotoConnectAppState();
@@ -64,6 +80,7 @@ class _MotoConnectAppState extends State<MotoConnectApp> {
         useMaterial3: true,
       ),
       home: MotoShell(
+        voiceTokenProvider: widget.voiceTokenProvider,
         isDark: _themeMode == ThemeMode.dark,
         onThemeChanged: _toggleTheme,
       ),
@@ -73,11 +90,13 @@ class _MotoConnectAppState extends State<MotoConnectApp> {
 
 class MotoShell extends StatefulWidget {
   const MotoShell({
+    required this.voiceTokenProvider,
     required this.isDark,
     required this.onThemeChanged,
     super.key,
   });
 
+  final VoiceTokenProvider? voiceTokenProvider;
   final bool isDark;
   final ValueChanged<bool> onThemeChanged;
 
@@ -98,8 +117,8 @@ class _MotoShellState extends State<MotoShell> {
         onChannelPressed: () => setState(() => _index = 1),
         onChatPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ChatsScreen())),
       ),
-      const CallsScreen(),
-      const GroupsScreen(),
+      CallsScreen(voiceTokenProvider: widget.voiceTokenProvider),
+      GroupsScreen(voiceTokenProvider: widget.voiceTokenProvider),
       ProfileScreen(
         isDark: widget.isDark,
         onThemeChanged: widget.onThemeChanged,
@@ -224,11 +243,17 @@ class HomeMapScreen extends StatelessWidget {
 }
 
 class CallsScreen extends StatelessWidget {
-  const CallsScreen({super.key});
+  const CallsScreen({this.voiceTokenProvider, super.key});
+
+  final VoiceTokenProvider? voiceTokenProvider;
 
   void _openVoiceRoom(BuildContext context, String roomName, String title) {
     Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => VoiceRoomScreen(roomName: roomName, title: title),
+      builder: (_) => VoiceRoomScreen(
+        roomName: roomName,
+        title: title,
+        tokenProvider: voiceTokenProvider,
+      ),
     ));
   }
 
@@ -265,10 +290,16 @@ class CallsScreen extends StatelessWidget {
 }
 
 class VoiceRoomScreen extends StatefulWidget {
-  const VoiceRoomScreen({required this.roomName, required this.title, super.key});
+  const VoiceRoomScreen({
+    required this.roomName,
+    required this.title,
+    this.tokenProvider,
+    super.key,
+  });
 
   final String roomName;
   final String title;
+  final VoiceTokenProvider? tokenProvider;
 
   @override
   State<VoiceRoomScreen> createState() => _VoiceRoomScreenState();
@@ -276,6 +307,58 @@ class VoiceRoomScreen extends StatefulWidget {
 
 class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
   final LiveKitVoiceService _voiceService = LiveKitVoiceService();
+  bool _connecting = false;
+  bool _connected = false;
+  bool _microphoneEnabled = true;
+  String? _connectionError;
+
+  Future<void> _connect() async {
+    final tokenProvider = widget.tokenProvider;
+    if (tokenProvider == null || _connecting || _connected) return;
+
+    setState(() {
+      _connecting = true;
+      _connectionError = null;
+    });
+
+    try {
+      final credentials = await tokenProvider(widget.roomName);
+      await _voiceService.connect(
+        serverUrl: credentials.serverUrl,
+        participantToken: credentials.participantToken,
+      );
+      if (!mounted) return;
+      setState(() {
+        _connected = true;
+        _microphoneEnabled = true;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _connectionError = error.toString());
+    } finally {
+      if (mounted) setState(() => _connecting = false);
+    }
+  }
+
+  Future<void> _disconnect() async {
+    await _voiceService.disconnect();
+    if (!mounted) return;
+    setState(() {
+      _connected = false;
+      _microphoneEnabled = false;
+    });
+  }
+
+  Future<void> _toggleMicrophone() async {
+    if (!_connected) return;
+    final nextValue = !_microphoneEnabled;
+    try {
+      await _voiceService.setMicrophoneEnabled(nextValue);
+      if (mounted) setState(() => _microphoneEnabled = nextValue);
+    } catch (error) {
+      if (mounted) setState(() => _connectionError = error.toString());
+    }
+  }
 
   @override
   void dispose() {
@@ -305,13 +388,18 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
                   const SizedBox(height: 6),
                   Text(widget.roomName, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
                   const SizedBox(height: 14),
-                  const Chip(
-                    avatar: Icon(Icons.lock_outline, size: 17),
-                    label: Text('Ожидает авторизацию'),
+                  Chip(
+                    avatar: Icon(
+                      _connected ? Icons.check_circle : Icons.lock_outline,
+                      size: 17,
+                    ),
+                    label: Text(_connected ? 'Подключено' : 'Ожидает авторизацию'),
                   ),
                   const SizedBox(height: 8),
-                  const Text(
-                    'Подключение станет доступно после входа в аккаунт и получения персонального временного токена. Это защищает голосовые комнаты от посторонних.',
+                  Text(
+                    _connected
+                        ? 'Соединение с голосовой комнатой установлено.'
+                        : 'Для подключения нужен персональный временный токен от защищённого сервера MotoConnect.',
                     textAlign: TextAlign.center,
                   ),
                 ],
@@ -319,31 +407,78 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          const Card(
+          Card(
             child: ListTile(
-              leading: Icon(Icons.people_outline),
-              title: Text('Участники'),
-              subtitle: Text('Пока никто не подключён'),
+              leading: const Icon(Icons.people_outline),
+              title: const Text('Участники'),
+              subtitle: Text(
+                _connected
+                    ? 'Вы подключены. Ожидаем других участников.'
+                    : 'Пока никто не подключён',
+              ),
             ),
           ),
-          const Card(
+          Card(
             child: ListTile(
-              leading: Icon(Icons.mic_off_outlined),
-              title: Text('Микрофон'),
-              subtitle: Text('Будет доступен после подключения'),
-              trailing: Icon(Icons.lock_outline),
-              enabled: false,
+              leading: Icon(
+                _microphoneEnabled && _connected
+                    ? Icons.mic_outlined
+                    : Icons.mic_off_outlined,
+              ),
+              title: const Text('Микрофон'),
+              subtitle: Text(
+                !_connected
+                    ? 'Будет доступен после подключения'
+                    : _microphoneEnabled
+                        ? 'Микрофон включён'
+                        : 'Микрофон выключен',
+              ),
+              trailing: _connected
+                  ? IconButton(
+                      tooltip: _microphoneEnabled
+                          ? 'Выключить микрофон'
+                          : 'Включить микрофон',
+                      onPressed: _toggleMicrophone,
+                      icon: Icon(
+                        _microphoneEnabled ? Icons.mic : Icons.mic_off,
+                        color: motoYellow,
+                      ),
+                    )
+                  : const Icon(Icons.lock_outline),
+              enabled: _connected,
             ),
           ),
           const SizedBox(height: 12),
           FilledButton.icon(
-            onPressed: null,
-            icon: const Icon(Icons.login),
-            label: const Text('Войти в голосовую комнату'),
+            onPressed: _connecting
+                ? null
+                : _connected
+                    ? _disconnect
+                    : widget.tokenProvider == null
+                        ? null
+                        : _connect,
+            icon: Icon(_connected ? Icons.call_end : Icons.login),
+            label: Text(
+              _connecting
+                  ? 'Подключение…'
+                  : _connected
+                      ? 'Отключиться'
+                      : 'Войти в голосовую комнату',
+            ),
           ),
+          if (_connectionError != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              _connectionError!,
+              style: const TextStyle(color: Colors.redAccent),
+              textAlign: TextAlign.center,
+            ),
+          ],
           const SizedBox(height: 8),
           Text(
-            'Комната подготовлена. Реальный звук и список участников появятся после подключения авторизации к LiveKit API.',
+            widget.tokenProvider == null
+                ? 'Голосовой экран и управление LiveKit готовы. Подключение включится после добавления безопасной авторизации и выдачи временного токена.'
+                : 'Токен комнаты запрашивается у сервера MotoConnect и не хранится в приложении.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
           ),
@@ -398,7 +533,9 @@ class _CreateGroupDialogState extends State<_CreateGroupDialog> {
 }
 
 class GroupsScreen extends StatefulWidget {
-  const GroupsScreen({super.key});
+  const GroupsScreen({this.voiceTokenProvider, super.key});
+
+  final VoiceTokenProvider? voiceTokenProvider;
 
   @override
   State<GroupsScreen> createState() => _GroupsScreenState();
@@ -443,7 +580,10 @@ class _GroupsScreenState extends State<GroupsScreen> {
             subtitle: const Text('Владелец: вы · локальный черновик'),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) => GroupDetailScreen(name: name),
+                builder: (_) => GroupDetailScreen(
+                  name: name,
+                  tokenProvider: widget.voiceTokenProvider,
+                ),
               ),
             ),
             trailing: IconButton(
@@ -460,9 +600,14 @@ class _GroupsScreenState extends State<GroupsScreen> {
 }
 
 class GroupDetailScreen extends StatelessWidget {
-  const GroupDetailScreen({required this.name, super.key});
+  const GroupDetailScreen({
+    required this.name,
+    this.tokenProvider,
+    super.key,
+  });
 
   final String name;
+  final VoiceTokenProvider? tokenProvider;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -515,6 +660,7 @@ class GroupDetailScreen extends StatelessWidget {
               builder: (_) => VoiceRoomScreen(
                 roomName: 'group-${name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9_-]+'), '-') }',
                 title: 'Голосовая связь',
+                tokenProvider: tokenProvider,
               ),
             )),
           ),
