@@ -31,11 +31,43 @@ jobs:
           cache: true
       - name: Generate Android project
         run: flutter create --platforms=android --project-name moto_connect .
-      - name: Configure Google Maps API key
+      - name: Configure Google Maps SDK and API key
         env:
           MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
         run: |
-          python3 -c 'import os,pathlib; p=pathlib.Path("android/app/src/main/AndroidManifest.xml"); s=p.read_text(); k=os.environ.get("MAPS_API_KEY", "").strip(); p.write_text(s.replace("__MAPS_API_KEY__", k) if k else s)'
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          key = os.environ.get("MAPS_API_KEY", "").strip()
+          if not key:
+              raise SystemExit("Missing GitHub Actions secret: MAPS_API_KEY")
+
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          text = manifest.read_text()
+          marker = '    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />'
+          if marker not in text:
+              text = text.replace(
+                  '    <application',
+                  '    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\\n'
+                  '    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\\n'
+                  '    <application',
+                  1,
+              )
+          metadata = f'        <meta-data android:name="com.google.android.geo.API_KEY" android:value="{key}" />'
+          if "com.google.android.geo.API_KEY" not in text:
+              text = text.replace('    <application', '    <application\\n' + metadata, 1)
+          else:
+              import re
+              text = re.sub(
+                  r'<meta-data\\s+android:name="com\\.google\\.android\\.geo\\.API_KEY"\\s+android:value="[^"]*"\\s*/>',
+                  metadata,
+                  text,
+              )
+          ET.fromstring(text)
+          manifest.write_text(text)
+          PY
       - name: Install packages
         run: flutter pub get
       - name: Analyze
