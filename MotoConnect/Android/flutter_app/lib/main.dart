@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'features/auth/motoconnect_auth_service.dart';
 import 'features/map/google_moto_map.dart';
 import 'features/voice/livekit_voice_service.dart';
@@ -242,7 +243,7 @@ class _AuthScreenState extends State<AuthScreen> {
                             height: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.telegram),
+                        : const Icon(Icons.send),
                     label: Text(_busy ? 'Ожидаем подтверждение…' : 'Войти через Telegram'),
                   ),
                 ),
@@ -973,9 +974,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
           trailing: IconButton(
             tooltip: 'Копировать ID',
             icon: const Icon(Icons.copy, color: motoYellow),
-            onPressed: () {
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: widget.user.id));
+              if (!context.mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Твой ID: ${widget.user.id}')),
+                const SnackBar(content: Text('ID скопирован')),
               );
             },
           ),
