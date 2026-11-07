@@ -22,7 +22,7 @@ services:
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_BOT_USERNAME
-        sync: false
+        value: MotoConnect_bot
       - key: LIVEKIT_URL
         sync: false
       - key: LIVEKIT_API_KEY
