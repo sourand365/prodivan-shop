@@ -95,7 +95,7 @@ class _MotoShellState extends State<MotoShell> {
         micEnabled: _micEnabled,
         onMicPressed: () => setState(() => _micEnabled = !_micEnabled),
         onChannelPressed: () => setState(() => _index = 1),
-        onChatPressed: () => setState(() => _index = 2),
+        onChatPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ChatsScreen())),
       ),
       const CallsScreen(),
       const GroupsScreen(),
@@ -238,46 +238,226 @@ class CallsScreen extends StatelessWidget {
   );
 }
 
-class GroupsScreen extends StatelessWidget {
+class GroupsScreen extends StatefulWidget {
   const GroupsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) => const _SectionPage(
-    title: 'Группы',
-    subtitle: 'Твои команды и приглашения',
-    icon: Icons.groups,
+  State<GroupsScreen> createState() => _GroupsScreenState();
+}
+
+class _GroupsScreenState extends State<GroupsScreen> {
+  final List<String> _groups = [];
+
+  Future<void> _createGroup() async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Новая группа'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 32,
+          decoration: const InputDecoration(labelText: 'Название группы'),
+          onSubmitted: (value) => Navigator.pop(context, value.trim()),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Отмена')),
+          FilledButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('Создать')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (name == null || name.isEmpty || !mounted) return;
+    setState(() => _groups.add(name));
+  }
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
     children: [
-      _FeatureTile(icon: Icons.group_add, title: 'Создать группу', detail: 'Создание будет доступно после входа в аккаунт'),
-      _FeatureTile(icon: Icons.forum_outlined, title: 'Чат группы', detail: 'Общение, фото, видео и голосовые сообщения'),
-      _FeatureTile(icon: Icons.timer_outlined, title: 'Активность группы', detail: 'Предупреждение владельцу за 24 часа до удаления'),
+      const _PageHeading(title: 'Группы', subtitle: 'Твои команды и приглашения', icon: Icons.groups),
+      Card(
+        child: ListTile(
+          leading: const Icon(Icons.group_add, color: motoYellow),
+          title: const Text('Создать группу'),
+          subtitle: const Text('Создай локальную заготовку группы'),
+          trailing: const Icon(Icons.add),
+          onTap: _createGroup,
+        ),
+      ),
+      const SizedBox(height: 10),
+      if (_groups.isEmpty)
+        const _FeatureTile(icon: Icons.groups_outlined, title: 'Пока нет групп', detail: 'Созданные здесь группы пока хранятся только на этом устройстве. Синхронизация появится после подключения аккаунтов и сервера.')
+      else
+        ..._groups.map((name) => Card(
+          child: ListTile(
+            leading: const CircleAvatar(backgroundColor: Color(0xFF554900), child: Icon(Icons.groups, color: motoYellow)),
+            title: Text(name),
+            subtitle: const Text('Владелец: вы · локальный черновик'),
+            trailing: IconButton(
+              tooltip: 'Удалить черновик',
+              icon: const Icon(Icons.delete_outline),
+              onPressed: () => setState(() => _groups.remove(name)),
+            ),
+          ),
+        )),
+      const SizedBox(height: 8),
+      const _FeatureTile(icon: Icons.timer_outlined, title: 'Правила активности', detail: 'Неактивная группа удаляется через 7 полных суток. Владельцу отправляется предупреждение за 24 часа. Серверный таймер подключим вместе с авторизацией.'),
     ],
   );
 }
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({required this.isDark, required this.onThemeChanged, super.key});
 
   final bool isDark;
   final ValueChanged<bool> onThemeChanged;
 
   @override
-  Widget build(BuildContext context) => _SectionPage(
-    title: 'Профиль',
-    subtitle: 'Настройки аккаунта MotoConnect',
-    icon: Icons.person,
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  final _name = TextEditingController();
+  final _vehicle = TextEditingController();
+  String _status = 'На линии';
+  String _notificationMode = 'Обычный';
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _vehicle.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
     children: [
-      const _FeatureTile(icon: Icons.account_circle_outlined, title: 'Пользователь', detail: 'Профиль появится после регистрации и одобрения'),
-      const _FeatureTile(icon: Icons.two_wheeler, title: 'Мой транспорт', detail: 'Марка и модель мотоцикла или скутера'),
-      SwitchListTile(
-        secondary: const Icon(Icons.dark_mode_outlined, color: motoYellow),
-        title: const Text('Тёмная тема'),
-        subtitle: const Text('Светлая и тёмная темы приложения'),
-        value: isDark,
-        onChanged: onThemeChanged,
+      const _PageHeading(title: 'Профиль', subtitle: 'Настройки MotoConnect', icon: Icons.person),
+      Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(children: [
+            TextField(controller: _name, decoration: const InputDecoration(labelText: 'Имя или ник', prefixIcon: Icon(Icons.person_outline))),
+            const SizedBox(height: 10),
+            TextField(controller: _vehicle, decoration: const InputDecoration(labelText: 'Мой транспорт', hintText: 'Например, Crosser CR 15', prefixIcon: Icon(Icons.two_wheeler))),
+            const SizedBox(height: 14),
+            DropdownButtonFormField<String>(
+              value: _status,
+              decoration: const InputDecoration(labelText: 'Статус'),
+              items: const ['На линии', 'Не в сети', 'Занят'].map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
+              onChanged: (v) { if (v != null) setState(() => _status = v); },
+            ),
+            const SizedBox(height: 14),
+            Align(alignment: Alignment.centerRight, child: TextButton.icon(
+              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Черновик профиля действует на этом устройстве. Сохранение на сервер добавим после авторизации.'))),
+              icon: const Icon(Icons.save_outlined), label: const Text('Сохранить черновик'),
+            )),
+          ]),
+        ),
       ),
-      const _FeatureTile(icon: Icons.notifications_outlined, title: 'Уведомления', detail: 'Режимы: обычный, в поездке, не беспокоить'),
-      const _FeatureTile(icon: Icons.privacy_tip_outlined, title: 'Приватность', detail: 'Номер телефона виден только тебе и главному администратору'),
+      Card(
+        child: Column(children: [
+          SwitchListTile(
+            secondary: const Icon(Icons.dark_mode_outlined, color: motoYellow),
+            title: const Text('Тёмная тема'),
+            value: widget.isDark,
+            onChanged: widget.onThemeChanged,
+          ),
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Icons.notifications_outlined, color: motoYellow),
+            title: const Text('Режим уведомлений'),
+            subtitle: Text(_notificationMode),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () async {
+              final value = await showModalBottomSheet<String>(
+                context: context,
+                builder: (context) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  for (final mode in ['Обычный', 'В поездке', 'Не беспокоить'])
+                    ListTile(title: Text(mode), onTap: () => Navigator.pop(context, mode)),
+                ])),
+              );
+              if (value != null) setState(() => _notificationMode = value);
+            },
+          ),
+        ]),
+      ),
+      const _FeatureTile(icon: Icons.privacy_tip_outlined, title: 'Приватность', detail: 'Телефон будет виден только владельцу и главному администратору. Не вводи личный номер в этот черновик.'),
+      const _FeatureTile(icon: Icons.info_outline, title: 'Статус синхронизации', detail: 'Профиль и настройки пока локальные. Облачная синхронизация требует входа и серверного хранилища.'),
     ],
+  );
+}
+
+class _PageHeading extends StatelessWidget {
+  const _PageHeading({required this.title, required this.subtitle, required this.icon});
+  final String title;
+  final String subtitle;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 20),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [Icon(icon, color: motoYellow, size: 30), const SizedBox(width: 10), Text(title, style: const TextStyle(fontSize: 27, fontWeight: FontWeight.w900))]),
+      const SizedBox(height: 5),
+      Text(subtitle, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+    ]),
+  );
+}
+
+class ChatsScreen extends StatefulWidget {
+  const ChatsScreen({super.key});
+  @override
+  State<ChatsScreen> createState() => _ChatsScreenState();
+}
+
+class _ChatsScreenState extends State<ChatsScreen> {
+  final _controller = TextEditingController();
+  final List<String> _messages = [];
+
+  @override
+  void dispose() { _controller.dispose(); super.dispose(); }
+
+  void _send() {
+    final text = _controller.text.trim();
+    if (text.isEmpty) return;
+    setState(() { _messages.add(text); _controller.clear(); });
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Чат'), backgroundColor: const Color(0xFF090909)),
+    body: Column(children: [
+      const Padding(
+        padding: EdgeInsets.all(12),
+        child: Text('Локальный просмотр чата. Отправка другим пользователям станет доступна после подключения авторизации и сервера.', style: TextStyle(color: Colors.orangeAccent)),
+      ),
+      Expanded(child: _messages.isEmpty
+        ? const Center(child: Text('Сообщений пока нет'))
+        : ListView.builder(
+            padding: const EdgeInsets.all(12),
+            itemCount: _messages.length,
+            itemBuilder: (context, index) => Align(
+              alignment: Alignment.centerRight,
+              child: Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: const Color(0xFF554900), borderRadius: BorderRadius.circular(14)),
+                child: Text(_messages[index]),
+              ),
+            ),
+          )),
+      SafeArea(child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
+        child: Row(children: [
+          Expanded(child: TextField(controller: _controller, decoration: const InputDecoration(hintText: 'Сообщение', border: OutlineInputBorder()), onSubmitted: (_) => _send())),
+          IconButton(onPressed: _send, icon: const Icon(Icons.send, color: motoYellow)),
+        ]),
+      )),
+    ]),
   );
 }
 
