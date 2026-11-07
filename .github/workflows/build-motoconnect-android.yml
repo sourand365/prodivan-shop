@@ -45,22 +45,51 @@ jobs:
               raise SystemExit("Missing GitHub Actions secret: MAPS_API_KEY")
 
           manifest = Path("android/app/src/main/AndroidManifest.xml")
-          text = manifest.read_text()
-          nl = chr(10)
-          if "ACCESS_COARSE_LOCATION" not in text:
-              insertion = (
-                  '    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />' + nl
-                  + '    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />' + nl
-                  + '    <application'
+          android_ns = "http://schemas.android.com/apk/res/android"
+          ET.register_namespace("android", android_ns)
+          android_name = f"{{{android_ns}}}name"
+          android_value = f"{{{android_ns}}}value"
+
+          tree = ET.parse(manifest)
+          root = tree.getroot()
+
+          required_permissions = (
+              "android.permission.ACCESS_COARSE_LOCATION",
+              "android.permission.ACCESS_FINE_LOCATION",
+          )
+          for permission in required_permissions:
+              exists = any(
+                  node.tag == "uses-permission"
+                  and node.get(android_name) == permission
+                  for node in root.findall("uses-permission")
               )
-              text = text.replace('    <application', insertion, 1)
-          lines = [line for line in text.splitlines()
-                   if "com.google.android.geo.API_KEY" not in line]
-          text = nl.join(lines)
-          metadata = f'        <meta-data android:name="com.google.android.geo.API_KEY" android:value="{key}" />'
-          text = text.replace('    <application', '    <application' + nl + metadata, 1)
-          ET.fromstring(text)
-          manifest.write_text(text)
+              if not exists:
+                  node = ET.Element("uses-permission")
+                  node.set(android_name, permission)
+                  application = root.find("application")
+                  if application is not None:
+                      root.insert(list(root).index(application), node)
+                  else:
+                      root.append(node)
+
+          application = root.find("application")
+          if application is None:
+              raise SystemExit("AndroidManifest.xml has no <application> element")
+
+          # Replace any existing Maps key entry; ElementTree safely XML-escapes the key.
+          for node in list(application.findall("meta-data")):
+              if node.get(android_name) == "com.google.android.geo.API_KEY":
+                  application.remove(node)
+
+          metadata = ET.SubElement(application, "meta-data")
+          metadata.set(android_name, "com.google.android.geo.API_KEY")
+          metadata.set(android_value, key)
+
+          ET.indent(tree, space="    ")
+          tree.write(manifest, encoding="utf-8", xml_declaration=True)
+
+          # Parse the written file again so malformed output fails before Flutter build.
+          ET.parse(manifest)
           PY
       - name: Install packages
         run: flutter pub get
