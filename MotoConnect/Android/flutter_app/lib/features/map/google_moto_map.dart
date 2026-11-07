@@ -74,9 +74,11 @@ class _GoogleMotoMapState extends State<GoogleMotoMap> {
         LatLng(position.latitude, position.longitude), 16,
       ));
     } catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Не удалось определить местоположение. Проверь GPS.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не удалось определить местоположение. Проверь GPS.')),
+        );
+      }
     }
   }
 
