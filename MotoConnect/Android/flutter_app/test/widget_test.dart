@@ -33,7 +33,7 @@ void main() {
   });
 
   testWidgets('Groups can be created, opened and enter a voice room', (tester) async {
-    await tester.pumpWidget(const MotoConnectApp());
+    await tester.pumpWidget(const MotoConnectApp(testUser: MotoConnectUser(id: 'MC-TEST000001', displayName: 'Test User')));
 
     await tester.tap(find.text('Группы').last);
     await pumpNavigation(tester);
@@ -74,7 +74,7 @@ void main() {
   });
 
   testWidgets('Map chat opens and accepts a local draft message', (tester) async {
-    await tester.pumpWidget(const MotoConnectApp());
+    await tester.pumpWidget(const MotoConnectApp(testUser: MotoConnectUser(id: 'MC-TEST000001', displayName: 'Test User')));
 
     await tester.tap(find.text('ЧАТ'));
     await pumpNavigation(tester);
@@ -90,7 +90,7 @@ void main() {
   });
 
   testWidgets('Calls screen opens the nearby voice room', (tester) async {
-    await tester.pumpWidget(const MotoConnectApp());
+    await tester.pumpWidget(const MotoConnectApp(testUser: MotoConnectUser(id: 'MC-TEST000001', displayName: 'Test User')));
 
     await tester.tap(find.text('Звонки').last);
     await pumpNavigation(tester);
