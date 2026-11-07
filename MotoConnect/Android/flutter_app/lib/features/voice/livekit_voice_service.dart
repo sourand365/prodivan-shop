@@ -79,16 +79,14 @@ class LiveKitVoiceService {
     await requestVoicePermissions();
     await disconnect();
 
-    final room = Room();
+    final room = Room(
+      roomOptions: const RoomOptions(
+        adaptiveStream: true,
+        dynacast: true,
+      ),
+    );
     try {
-      await room.connect(
-        serverUrl,
-        participantToken,
-        roomOptions: const RoomOptions(
-          adaptiveStream: true,
-          dynacast: true,
-        ),
-      );
+      await room.connect(serverUrl, participantToken);
       _room = room;
       await room.localParticipant?.setMicrophoneEnabled(true);
     } catch (_) {
