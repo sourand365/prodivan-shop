@@ -24,6 +24,7 @@ class VoiceParticipantInfo {
 /// LiveKit adapter. The API secret stays on the MotoConnect backend.
 class LiveKitVoiceService extends ChangeNotifier {
   Room? _room;
+  EventsListener<RoomEvent>? _roomEvents;
 
   bool get hasRoom => _room != null;
 
@@ -159,6 +160,8 @@ class LiveKitVoiceService extends ChangeNotifier {
       // LiveKit now owns transient may-duck focus for the call lifecycle.
       room.addListener(_onRoomChanged);
       _room = room;
+      _roomEvents = room.createListener()
+        ..on<RoomDisconnectedEvent>((_) => _handleRoomDisconnected(room));
       notifyListeners();
     } catch (_) {
       await room.disconnect();
@@ -169,6 +172,16 @@ class LiveKitVoiceService extends ChangeNotifier {
   }
 
   void _onRoomChanged() {
+    notifyListeners();
+  }
+
+  void _handleRoomDisconnected(Room room) {
+    if (!identical(_room, room)) return;
+    _room = null;
+    room.removeListener(_onRoomChanged);
+    _roomEvents?.dispose();
+    _roomEvents = null;
+    unawaited(AudioManager.instance.deactivateAudioSession());
     notifyListeners();
   }
 
@@ -186,6 +199,8 @@ class LiveKitVoiceService extends ChangeNotifier {
     _room = null;
     if (room != null) {
       room.removeListener(_onRoomChanged);
+      _roomEvents?.dispose();
+      _roomEvents = null;
       await room.disconnect();
       await room.dispose();
       await AudioManager.instance.deactivateAudioSession();
