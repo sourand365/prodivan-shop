@@ -1,20 +1,23 @@
 {
-  "name": "motoconnect-voice-api",
-  "version": "0.1.0",
+  "name": "motoconnect-auth-presence-api",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Private LiveKit token API for MotoConnect",
+  "description": "Telegram authentication, persistent MotoConnect IDs, proximity presence and LiveKit tokens",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js"
+    "check": "node --check server.js && node --check proximity.js",
+    "test": "node --test"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
+    "better-sqlite3": "^12.4.1",
     "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
     "livekit-server-sdk": "^2.19.2",
-    "jsonwebtoken": "^9.0.2"
+    "telegraf": "^4.16.3"
   }
 }
