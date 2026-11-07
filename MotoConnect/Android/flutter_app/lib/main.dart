@@ -312,6 +312,23 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
   bool _microphoneEnabled = true;
   String? _connectionError;
 
+  @override
+  void initState() {
+    super.initState();
+    _voiceService.addListener(_syncConnectionState);
+  }
+
+  void _syncConnectionState() {
+    if (!mounted) return;
+    final connected = _voiceService.hasRoom;
+    if (_connected != connected || (!connected && _microphoneEnabled)) {
+      setState(() {
+        _connected = connected;
+        if (!connected) _microphoneEnabled = false;
+      });
+    }
+  }
+
   Future<void> _connect() async {
     final tokenProvider = widget.tokenProvider;
     if (tokenProvider == null || _connecting || _connected) return;
@@ -362,6 +379,7 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
 
   @override
   void dispose() {
+    _voiceService.removeListener(_syncConnectionState);
     _voiceService.disconnect();
     super.dispose();
   }
