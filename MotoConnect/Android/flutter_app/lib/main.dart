@@ -407,16 +407,68 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.people_outline),
-              title: const Text('Участники'),
-              subtitle: Text(
-                _connected
-                    ? 'Вы подключены. Ожидаем других участников.'
-                    : 'Пока никто не подключён',
-              ),
-            ),
+          AnimatedBuilder(
+            animation: _voiceService,
+            builder: (context, _) {
+              final participants = _voiceService.participants;
+              return Card(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Column(
+                    children: [
+                      ListTile(
+                        leading: const Icon(Icons.people_outline),
+                        title: const Text('Участники'),
+                        subtitle: Text(
+                          participants.isEmpty
+                              ? 'Пока никто не подключён'
+                              : 'В комнате: ${participants.length}',
+                        ),
+                      ),
+                      if (participants.isNotEmpty)
+                        for (final participant in participants)
+                          ListTile(
+                            dense: true,
+                            leading: CircleAvatar(
+                              backgroundColor: participant.isSpeaking
+                                  ? motoYellow
+                                  : Theme.of(context).colorScheme.surfaceContainerHighest,
+                              child: Icon(
+                                participant.isLocal
+                                    ? Icons.person
+                                    : Icons.person_outline,
+                                color: participant.isSpeaking
+                                    ? Colors.black
+                                    : Theme.of(context).colorScheme.onSurface,
+                              ),
+                            ),
+                            title: Text(
+                              participant.isLocal
+                                  ? '${participant.displayName} (вы)'
+                                  : participant.displayName,
+                            ),
+                            subtitle: Text(
+                              participant.isSpeaking
+                                  ? 'Говорит'
+                                  : participant.isMuted
+                                      ? 'Микрофон выключен'
+                                      : 'На связи',
+                            ),
+                            trailing: Icon(
+                              participant.isMuted
+                                  ? Icons.mic_off
+                                  : Icons.mic,
+                              size: 19,
+                              color: participant.isMuted
+                                  ? Theme.of(context).colorScheme.onSurfaceVariant
+                                  : motoYellow,
+                            ),
+                          ),
+                    ],
+                  ),
+                ),
+              );
+            },
           ),
           Card(
             child: ListTile(
