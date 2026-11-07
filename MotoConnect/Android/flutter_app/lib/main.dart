@@ -238,6 +238,50 @@ class CallsScreen extends StatelessWidget {
   );
 }
 
+class _CreateGroupDialog extends StatefulWidget {
+  const _CreateGroupDialog();
+
+  @override
+  State<_CreateGroupDialog> createState() => _CreateGroupDialogState();
+}
+
+class _CreateGroupDialogState extends State<_CreateGroupDialog> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    Navigator.of(context).pop(_controller.text.trim());
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Новая группа'),
+    content: TextField(
+      controller: _controller,
+      autofocus: true,
+      maxLength: 32,
+      textCapitalization: TextCapitalization.sentences,
+      decoration: const InputDecoration(labelText: 'Название группы'),
+      onSubmitted: (_) => _submit(),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('Отмена'),
+      ),
+      FilledButton(
+        onPressed: _submit,
+        child: const Text('Создать'),
+      ),
+    ],
+  );
+}
+
 class GroupsScreen extends StatefulWidget {
   const GroupsScreen({super.key});
 
@@ -249,25 +293,12 @@ class _GroupsScreenState extends State<GroupsScreen> {
   final List<String> _groups = [];
 
   Future<void> _createGroup() async {
-    final controller = TextEditingController();
+    // The dialog owns its controller so it stays alive until the route is
+    // fully removed (showDialog may complete before the reverse animation ends).
     final name = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Новая группа'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLength: 32,
-          decoration: const InputDecoration(labelText: 'Название группы'),
-          onSubmitted: (value) => Navigator.pop(context, value.trim()),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Отмена')),
-          FilledButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('Создать')),
-        ],
-      ),
+      builder: (_) => const _CreateGroupDialog(),
     );
-    controller.dispose();
     if (name == null || name.isEmpty || !mounted) return;
     setState(() => _groups.add(name));
   }
