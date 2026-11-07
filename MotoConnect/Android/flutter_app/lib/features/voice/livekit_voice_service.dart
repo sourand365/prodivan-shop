@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:livekit_client/livekit_client.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -132,16 +131,18 @@ class LiveKitVoiceService extends ChangeNotifier {
     await requestVoicePermissions();
     await disconnect();
 
-    final audioSession = await AudioSession.instance;
-    await audioSession.configure(
-      const AudioSessionConfiguration(
-        androidAudioAttributes: AndroidAudioAttributes(
-          contentType: AndroidAudioContentType.speech,
-          usage: AndroidAudioUsage.voiceCommunication,
+    // Keep audio focus under LiveKit's own manager so WebRTC routing and
+    // focus ownership cannot conflict with a second audio-session plugin.
+    await AudioManager.instance.setAudioSessionOptions(
+      const AudioSessionOptions.communication(
+        android: AndroidAudioSessionConfiguration(
+          audioMode: AndroidAudioMode.inCommunication,
+          manageAudioFocus: true,
+          focusMode: AndroidAudioFocusMode.gainTransientMayDuck,
+          streamType: AndroidAudioStreamType.voiceCall,
+          usageType: AndroidAudioAttributesUsageType.voiceCommunication,
+          contentType: AndroidAudioAttributesContentType.speech,
         ),
-        androidAudioFocusGainType:
-            AndroidAudioFocusGainType.gainTransientMayDuck,
-        androidWillPauseWhenDucked: false,
       ),
     );
 
@@ -155,25 +156,14 @@ class LiveKitVoiceService extends ChangeNotifier {
       await room.connect(serverUrl, participantToken);
       await room.localParticipant?.setMicrophoneEnabled(true);
 
-      // Ask Android to temporarily duck other media while voice is active.
-      // Android controls the actual attenuation and restores it on focus release.
-      final focusGranted = await audioSession.setActive(
-        true,
-        androidAudioFocusGainType:
-            AndroidAudioFocusGainType.gainTransientMayDuck,
-        androidWillPauseWhenDucked: false,
-      );
-      if (!focusGranted) {
-        throw StateError('Android did not grant audio focus for the voice call.');
-      }
-
+      // LiveKit now owns transient may-duck focus for the call lifecycle.
       room.addListener(_onRoomChanged);
       _room = room;
       notifyListeners();
     } catch (_) {
       await room.disconnect();
       await room.dispose();
-      await audioSession.setActive(false);
+      await AudioManager.instance.deactivateAudioSession();
       rethrow;
     }
   }
@@ -198,8 +188,7 @@ class LiveKitVoiceService extends ChangeNotifier {
       room.removeListener(_onRoomChanged);
       await room.disconnect();
       await room.dispose();
-      final audioSession = await AudioSession.instance;
-      await audioSession.setActive(false);
+      await AudioManager.instance.deactivateAudioSession();
     }
     notifyListeners();
   }
