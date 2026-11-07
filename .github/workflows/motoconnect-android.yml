@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - "fix/motoconnect-group-dialog-lifecycle"
+      - "feat/motoconnect-voice-ui"
     paths:
       - "MotoConnect/Android/flutter_app/**"
       - ".github/workflows/motoconnect-android.yml"

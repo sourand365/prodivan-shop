@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'features/map/google_moto_map.dart';
+import 'features/voice/livekit_voice_service.dart';
 
 void main() {
   runApp(const MotoConnectApp());
@@ -7,8 +8,24 @@ void main() {
 
 const Color motoYellow = Color(0xFFFFD400);
 
+class VoiceConnectionCredentials {
+  const VoiceConnectionCredentials({
+    required this.serverUrl,
+    required this.participantToken,
+  });
+
+  final String serverUrl;
+  final String participantToken;
+}
+
+typedef VoiceTokenProvider = Future<VoiceConnectionCredentials> Function(
+  String roomName,
+);
+
 class MotoConnectApp extends StatefulWidget {
-  const MotoConnectApp({super.key});
+  const MotoConnectApp({this.voiceTokenProvider, super.key});
+
+  final VoiceTokenProvider? voiceTokenProvider;
 
   @override
   State<MotoConnectApp> createState() => _MotoConnectAppState();
@@ -63,6 +80,7 @@ class _MotoConnectAppState extends State<MotoConnectApp> {
         useMaterial3: true,
       ),
       home: MotoShell(
+        voiceTokenProvider: widget.voiceTokenProvider,
         isDark: _themeMode == ThemeMode.dark,
         onThemeChanged: _toggleTheme,
       ),
@@ -72,11 +90,13 @@ class _MotoConnectAppState extends State<MotoConnectApp> {
 
 class MotoShell extends StatefulWidget {
   const MotoShell({
+    required this.voiceTokenProvider,
     required this.isDark,
     required this.onThemeChanged,
     super.key,
   });
 
+  final VoiceTokenProvider? voiceTokenProvider;
   final bool isDark;
   final ValueChanged<bool> onThemeChanged;
 
@@ -97,8 +117,8 @@ class _MotoShellState extends State<MotoShell> {
         onChannelPressed: () => setState(() => _index = 1),
         onChatPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ChatsScreen())),
       ),
-      const CallsScreen(),
-      const GroupsScreen(),
+      CallsScreen(voiceTokenProvider: widget.voiceTokenProvider),
+      GroupsScreen(voiceTokenProvider: widget.voiceTokenProvider),
       ProfileScreen(
         isDark: widget.isDark,
         onThemeChanged: widget.onThemeChanged,
@@ -223,19 +243,319 @@ class HomeMapScreen extends StatelessWidget {
 }
 
 class CallsScreen extends StatelessWidget {
-  const CallsScreen({super.key});
+  const CallsScreen({this.voiceTokenProvider, super.key});
+
+  final VoiceTokenProvider? voiceTokenProvider;
+
+  void _openVoiceRoom(BuildContext context, String roomName, String title) {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => VoiceRoomScreen(
+        roomName: roomName,
+        title: title,
+        tokenProvider: voiceTokenProvider,
+      ),
+    ));
+  }
 
   @override
-  Widget build(BuildContext context) => const _SectionPage(
-    title: 'Звонки',
-    subtitle: 'Личные вызовы и голосовые каналы',
-    icon: Icons.headset_mic,
+  Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
     children: [
-      _FeatureTile(icon: Icons.wifi_tethering, title: 'Общий канал рядом', detail: 'Связь с доступными курьерами в пределах цепочки 1 км'),
-      _FeatureTile(icon: Icons.call, title: 'Личные звонки', detail: 'Звонок конкретному участнику'),
-      _FeatureTile(icon: Icons.people_alt_outlined, title: 'Участники канала', detail: 'Список подключённых появится после подключения сервера'),
+      const _PageHeading(title: 'Звонки', subtitle: 'Голосовые каналы MotoConnect', icon: Icons.headset_mic),
+      Card(
+        child: ListTile(
+          leading: const Icon(Icons.wifi_tethering, color: motoYellow),
+          title: const Text('Общий канал рядом'),
+          subtitle: const Text('Голосовая комната для курьеров поблизости'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => _openVoiceRoom(context, 'nearby-channel', 'Общий канал рядом'),
+        ),
+      ),
+      Card(
+        child: ListTile(
+          leading: const Icon(Icons.call, color: motoYellow),
+          title: const Text('Личный звонок'),
+          subtitle: const Text('Подготовка личных вызовов'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => _openVoiceRoom(context, 'direct-call', 'Личный звонок'),
+        ),
+      ),
+      const _FeatureTile(
+        icon: Icons.security,
+        title: 'Защищённое подключение',
+        detail: 'Голосовой сервер выдаёт короткоживущий токен только после проверки аккаунта и членства в комнате.',
+      ),
     ],
   );
+}
+
+class VoiceRoomScreen extends StatefulWidget {
+  const VoiceRoomScreen({
+    required this.roomName,
+    required this.title,
+    this.tokenProvider,
+    super.key,
+  });
+
+  final String roomName;
+  final String title;
+  final VoiceTokenProvider? tokenProvider;
+
+  @override
+  State<VoiceRoomScreen> createState() => _VoiceRoomScreenState();
+}
+
+class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
+  final LiveKitVoiceService _voiceService = LiveKitVoiceService();
+  bool _connecting = false;
+  bool _connected = false;
+  bool _microphoneEnabled = true;
+  String? _connectionError;
+
+  @override
+  void initState() {
+    super.initState();
+    _voiceService.addListener(_syncConnectionState);
+  }
+
+  void _syncConnectionState() {
+    if (!mounted) return;
+    final connected = _voiceService.hasRoom;
+    if (_connected != connected || (!connected && _microphoneEnabled)) {
+      setState(() {
+        _connected = connected;
+        if (!connected) _microphoneEnabled = false;
+      });
+    }
+  }
+
+  Future<void> _connect() async {
+    final tokenProvider = widget.tokenProvider;
+    if (tokenProvider == null || _connecting || _connected) return;
+
+    setState(() {
+      _connecting = true;
+      _connectionError = null;
+    });
+
+    try {
+      final credentials = await tokenProvider(widget.roomName);
+      await _voiceService.connect(
+        serverUrl: credentials.serverUrl,
+        participantToken: credentials.participantToken,
+      );
+      if (!mounted) return;
+      setState(() {
+        _connected = true;
+        _microphoneEnabled = true;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _connectionError = error.toString());
+    } finally {
+      if (mounted) setState(() => _connecting = false);
+    }
+  }
+
+  Future<void> _disconnect() async {
+    await _voiceService.disconnect();
+    if (!mounted) return;
+    setState(() {
+      _connected = false;
+      _microphoneEnabled = false;
+    });
+  }
+
+  Future<void> _toggleMicrophone() async {
+    if (!_connected) return;
+    final nextValue = !_microphoneEnabled;
+    try {
+      await _voiceService.setMicrophoneEnabled(nextValue);
+      if (mounted) setState(() => _microphoneEnabled = nextValue);
+    } catch (error) {
+      if (mounted) setState(() => _connectionError = error.toString());
+    }
+  }
+
+  @override
+  void dispose() {
+    _voiceService.removeListener(_syncConnectionState);
+    _voiceService.disconnect();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.title)),
+      body: ListView(
+        padding: const EdgeInsets.all(18),
+        children: [
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  const CircleAvatar(
+                    radius: 38,
+                    backgroundColor: Color(0xFF554900),
+                    child: Icon(Icons.headset_mic, color: motoYellow, size: 38),
+                  ),
+                  const SizedBox(height: 14),
+                  const Text('Голосовая комната', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 6),
+                  Text(widget.roomName, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                  const SizedBox(height: 14),
+                  Chip(
+                    avatar: Icon(
+                      _connected ? Icons.check_circle : Icons.lock_outline,
+                      size: 17,
+                    ),
+                    label: Text(_connected ? 'Подключено' : 'Ожидает авторизацию'),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _connected
+                        ? 'Соединение с голосовой комнатой установлено.'
+                        : 'Для подключения нужен персональный временный токен от защищённого сервера MotoConnect.',
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          AnimatedBuilder(
+            animation: _voiceService,
+            builder: (context, _) {
+              final participants = _voiceService.participants;
+              return Card(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Column(
+                    children: [
+                      ListTile(
+                        leading: const Icon(Icons.people_outline),
+                        title: const Text('Участники'),
+                        subtitle: Text(
+                          participants.isEmpty
+                              ? 'Пока никто не подключён'
+                              : 'В комнате: ${participants.length}',
+                        ),
+                      ),
+                      if (participants.isNotEmpty)
+                        for (final participant in participants)
+                          ListTile(
+                            dense: true,
+                            leading: CircleAvatar(
+                              backgroundColor: participant.isSpeaking
+                                  ? motoYellow
+                                  : Theme.of(context).colorScheme.surfaceContainerHighest,
+                              child: Icon(
+                                participant.isLocal
+                                    ? Icons.person
+                                    : Icons.person_outline,
+                                color: participant.isSpeaking
+                                    ? Colors.black
+                                    : Theme.of(context).colorScheme.onSurface,
+                              ),
+                            ),
+                            title: Text(
+                              participant.isLocal
+                                  ? '${participant.displayName} (вы)'
+                                  : participant.displayName,
+                            ),
+                            subtitle: Text(
+                              participant.isSpeaking
+                                  ? 'Говорит'
+                                  : participant.isMuted
+                                      ? 'Микрофон выключен'
+                                      : 'На связи',
+                            ),
+                            trailing: Icon(
+                              participant.isMuted
+                                  ? Icons.mic_off
+                                  : Icons.mic,
+                              size: 19,
+                              color: participant.isMuted
+                                  ? Theme.of(context).colorScheme.onSurfaceVariant
+                                  : motoYellow,
+                            ),
+                          ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+          Card(
+            child: ListTile(
+              leading: Icon(
+                _microphoneEnabled && _connected
+                    ? Icons.mic_outlined
+                    : Icons.mic_off_outlined,
+              ),
+              title: const Text('Микрофон'),
+              subtitle: Text(
+                !_connected
+                    ? 'Будет доступен после подключения'
+                    : _microphoneEnabled
+                        ? 'Микрофон включён'
+                        : 'Микрофон выключен',
+              ),
+              trailing: _connected
+                  ? IconButton(
+                      tooltip: _microphoneEnabled
+                          ? 'Выключить микрофон'
+                          : 'Включить микрофон',
+                      onPressed: _toggleMicrophone,
+                      icon: Icon(
+                        _microphoneEnabled ? Icons.mic : Icons.mic_off,
+                        color: motoYellow,
+                      ),
+                    )
+                  : const Icon(Icons.lock_outline),
+              enabled: _connected,
+            ),
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: _connecting
+                ? null
+                : _connected
+                    ? _disconnect
+                    : widget.tokenProvider == null
+                        ? null
+                        : _connect,
+            icon: Icon(_connected ? Icons.call_end : Icons.login),
+            label: Text(
+              _connecting
+                  ? 'Подключение…'
+                  : _connected
+                      ? 'Отключиться'
+                      : 'Войти в голосовую комнату',
+            ),
+          ),
+          if (_connectionError != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              _connectionError!,
+              style: const TextStyle(color: Colors.redAccent),
+              textAlign: TextAlign.center,
+            ),
+          ],
+          const SizedBox(height: 8),
+          Text(
+            widget.tokenProvider == null
+                ? 'Голосовой экран и управление LiveKit готовы. Подключение включится после добавления безопасной авторизации и выдачи временного токена.'
+                : 'Токен комнаты запрашивается у сервера MotoConnect и не хранится в приложении.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _CreateGroupDialog extends StatefulWidget {
@@ -283,7 +603,9 @@ class _CreateGroupDialogState extends State<_CreateGroupDialog> {
 }
 
 class GroupsScreen extends StatefulWidget {
-  const GroupsScreen({super.key});
+  const GroupsScreen({this.voiceTokenProvider, super.key});
+
+  final VoiceTokenProvider? voiceTokenProvider;
 
   @override
   State<GroupsScreen> createState() => _GroupsScreenState();
@@ -328,7 +650,10 @@ class _GroupsScreenState extends State<GroupsScreen> {
             subtitle: const Text('Владелец: вы · локальный черновик'),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) => GroupDetailScreen(name: name),
+                builder: (_) => GroupDetailScreen(
+                  name: name,
+                  tokenProvider: widget.voiceTokenProvider,
+                ),
               ),
             ),
             trailing: IconButton(
@@ -345,9 +670,14 @@ class _GroupsScreenState extends State<GroupsScreen> {
 }
 
 class GroupDetailScreen extends StatelessWidget {
-  const GroupDetailScreen({required this.name, super.key});
+  const GroupDetailScreen({
+    required this.name,
+    this.tokenProvider,
+    super.key,
+  });
 
   final String name;
+  final VoiceTokenProvider? tokenProvider;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -390,10 +720,20 @@ class GroupDetailScreen extends StatelessWidget {
           title: 'Участники',
           detail: 'Пока только вы. Приглашение участников станет доступно после подключения авторизации.',
         ),
-        const _FeatureTile(
-          icon: Icons.headset_mic_outlined,
-          title: 'Голосовая связь',
-          detail: 'Голосовой канал ещё не подключён. Этот экран пока работает как локальный черновик группы.',
+        Card(
+          child: ListTile(
+            leading: const Icon(Icons.headset_mic_outlined, color: motoYellow),
+            title: const Text('Голосовая связь'),
+            subtitle: const Text('Открыть голосовую комнату группы'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => VoiceRoomScreen(
+                roomName: 'group-${name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9_-]+'), '-') }',
+                title: 'Голосовая связь',
+                tokenProvider: tokenProvider,
+              ),
+            )),
+          ),
         ),
       ],
     ),
@@ -550,31 +890,6 @@ class _ChatsScreenState extends State<ChatsScreen> {
         ]),
       )),
     ]),
-  );
-}
-
-class _SectionPage extends StatelessWidget {
-  const _SectionPage({required this.title, required this.subtitle, required this.icon, required this.children});
-
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
-    children: [
-      Row(children: [
-        Icon(icon, color: motoYellow, size: 30),
-        const SizedBox(width: 10),
-        Text(title, style: const TextStyle(fontSize: 27, fontWeight: FontWeight.w900)),
-      ]),
-      const SizedBox(height: 5),
-      Text(subtitle, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
-      const SizedBox(height: 22),
-      ...children,
-    ],
   );
 }
 
