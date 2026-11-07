@@ -133,6 +133,7 @@ class _MotoConnectAppState extends State<MotoConnectApp> {
                 )
               : MotoShell(
                   voiceTokenProvider: _voiceTokenProvider,
+                  authService: _authService,
                   user: _user!,
                   onLogout: _logout,
                   isDark: _themeMode == ThemeMode.dark,
@@ -271,6 +272,7 @@ class _AuthScreenState extends State<AuthScreen> {
 class MotoShell extends StatefulWidget {
   const MotoShell({
     required this.voiceTokenProvider,
+    required this.authService,
     required this.user,
     required this.onLogout,
     required this.isDark,
@@ -279,6 +281,7 @@ class MotoShell extends StatefulWidget {
   });
 
   final VoiceTokenProvider? voiceTokenProvider;
+  final MotoConnectAuthService authService;
   final MotoConnectUser user;
   final VoidCallback onLogout;
   final bool isDark;
@@ -296,6 +299,7 @@ class _MotoShellState extends State<MotoShell> {
   Widget build(BuildContext context) {
     final pages = <Widget>[
       HomeMapScreen(
+        authService: widget.authService,
         micEnabled: _micEnabled,
         onMicPressed: () => setState(() => _micEnabled = !_micEnabled),
         onChannelPressed: () => setState(() => _index = 1),
@@ -329,6 +333,7 @@ class _MotoShellState extends State<MotoShell> {
 
 class HomeMapScreen extends StatelessWidget {
   const HomeMapScreen({
+    required this.authService,
     required this.micEnabled,
     required this.onMicPressed,
     required this.onChannelPressed,
@@ -336,6 +341,7 @@ class HomeMapScreen extends StatelessWidget {
     super.key,
   });
 
+  final MotoConnectAuthService authService;
   final bool micEnabled;
   final VoidCallback onMicPressed;
   final VoidCallback onChannelPressed;
@@ -374,7 +380,7 @@ class HomeMapScreen extends StatelessWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  const GoogleMotoMap(),
+                  GoogleMotoMap(authService: authService),
                   Positioned(left: 14, top: 14, child: _mapLabel(context, 'ОДЕССА', Icons.location_on)),
                 ],
               ),
