@@ -34,7 +34,7 @@ void main() {
   testWidgets('Groups can be created, opened and enter a voice room', (tester) async {
     await tester.pumpWidget(const MotoConnectApp());
 
-    await tester.tap(find.text('Группы'));
+    await tester.tap(find.text('Группы').last);
     await pumpNavigation(tester);
 
     await tester.tap(find.text('Создать группу'));
@@ -91,7 +91,7 @@ void main() {
   testWidgets('Calls screen opens the nearby voice room', (tester) async {
     await tester.pumpWidget(const MotoConnectApp());
 
-    await tester.tap(find.text('Звонки'));
+    await tester.tap(find.text('Звонки').last);
     await pumpNavigation(tester);
     await tester.tap(find.text('Общий канал рядом'));
     await pumpNavigation(tester);
