@@ -1,4 +1,4 @@
-name: Check MotoConnect Voice API
+name: Check MotoConnect Auth and Voice API
 
 on:
   push:
@@ -24,9 +24,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: MotoConnect/Server/voice-api/package.json
       - name: Install dependencies
-        run: npm install
+        run: npm install --no-audit --no-fund
       - name: Check JavaScript syntax
         run: npm run check
+      - name: Test proximity graph
+        run: npm test
