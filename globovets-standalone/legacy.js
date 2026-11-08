@@ -8865,7 +8865,6 @@ async function finalEarningsPeriodEntriesForKey(
         0,
         0,
         0,
-        0,
 
         item.amount
       );
