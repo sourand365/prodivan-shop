@@ -1,0 +1,30 @@
+name: Globovets syntax check
+
+on:
+  push:
+    branches:
+      - standalone/globovets-local-sqlite
+    paths:
+      - 'globovets-standalone/index.js'
+      - 'globovets-standalone/legacy.js'
+      - 'globovets-standalone/package.json'
+      - '.github/workflows/globovets-syntax.yml'
+  workflow_dispatch:
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: globovets-standalone
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check JavaScript syntax
+        run: |
+          node --check index.js
+          node --check legacy.js
+      - name: Validate package manifest
+        run: node -e "JSON.parse(require('node:fs').readFileSync('package.json', 'utf8'))"
