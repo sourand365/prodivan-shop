@@ -10560,10 +10560,10 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
   }
   const weekAgo=new Date(dayKey+"T00:00:00Z");weekAgo.setUTCDate(weekAgo.getUTCDate()-7);
   const weekAgoKey=finalEarningsISODate(weekAgo);
-  if(user.days[weekAgoKey] && daily===user.days[weekAgoKey].earnings) await secretAward("tot_zhe_den",dayKey);
+  if(daily>0 && user.days[weekAgoKey] && Number(user.days[weekAgoKey].earnings)>0 && daily===user.days[weekAgoKey].earnings) await secretAward("tot_zhe_den",dayKey);
   const monthAgo=new Date(Date.UTC(dayDate.getUTCFullYear(),dayDate.getUTCMonth()-1,dayDate.getUTCDate()));
   const monthAgoKey=finalEarningsISODate(monthAgo);
-  if(monthAgoKey>=V3_ACHIEVEMENT_START_DATE && user.days[monthAgoKey] && daily===user.days[monthAgoKey].earnings) await secretAward("eho",dayKey);
+  if(daily>0 && monthAgoKey>=V3_ACHIEVEMENT_START_DATE && user.days[monthAgoKey] && Number(user.days[monthAgoKey].earnings)>0 && daily===user.days[monthAgoKey].earnings) await secretAward("eho",dayKey);
   // Рекорды по дням недели за всё время новой системы.
   let weekdayRecord=0;
   for(const [date,entry] of Object.entries(user.days)){const dt=finalEarningsParseDate(date);if(dt && dt.getUTCDay()===weekday && (weekday===1||weekday===6)) weekdayRecord=Math.max(weekdayRecord,Number(entry.earnings)||0);}
@@ -10621,8 +10621,11 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
   if(user.monthGoal>0 && user.monthGoalPercent>=100 && user.isMonthEnd) {
     const priorMonth = new Date(Date.UTC(todayDate.getUTCFullYear(),todayDate.getUTCMonth()-1,1));
     const priorKey = finalEarningsMonthKey(priorMonth);
+    const twoMonthsAgo = new Date(Date.UTC(todayDate.getUTCFullYear(),todayDate.getUTCMonth()-2,1));
+    const twoMonthsKey = finalEarningsMonthKey(twoMonthsAgo);
     const priorDone = allAwards.some(x=>String(x.userId)===String(userId)&&x.achievementId==="rab_mesyatsa"&&x.periodKey===priorKey);
-    if(priorDone) await secretAward("zaebis_tri_raza",monthKey);
+    const twoMonthsDone = allAwards.some(x=>String(x.userId)===String(userId)&&x.achievementId==="rab_mesyatsa"&&x.periodKey===twoMonthsKey);
+    if(priorDone && twoMonthsDone) await secretAward("zaebis_tri_raza",monthKey);
   }
   if(user.isMonthEnd && user.monthWorkdays>0) {
     const teamWorkdays=[...snapshot.users.values()].reduce((n,u)=>n+(u.monthWorkdays||0),0);
@@ -10632,13 +10635,13 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
     if(Math.round(personalAvg*100)===Math.round(teamAvg*100)) await secretAward("zolotaya_seredina",monthKey);
     const priorMonth = new Date(Date.UTC(todayDate.getUTCFullYear(),todayDate.getUTCMonth()-1,1));
     const priorKey=finalEarningsMonthKey(priorMonth);
-    const priorTotal=Object.values(snapshot.state.days||{}).reduce((n,day)=>{
-      const date=Object.keys(snapshot.state.days||{}).find(k=>snapshot.state.days[k]===day);
-      return n+(date&&date.startsWith(priorKey+"-")?(Number(day[userId]?.glovo)||0)+(Number(day[userId]?.bolt)||0)+(Number(day[userId]?.ipost)||Number(day[userId]?.iposr)||0)+(Number(day[userId]?.bolttr)||0)+(Number(day[userId]?.personal)||0)+(Number(day[userId]?.floors)||0)+(Number(day[userId]?.quests)||0):0);
-    },0);
-    if(priorTotal>0 && user.monthTotal>=priorTotal*1.5) await secretAward("skachok",monthKey);
-    if(priorTotal>0 && user.monthTotal<=priorTotal*0.5) await secretAward("obval",monthKey);
-    if(priorTotal>0 && user.monthTotal>=priorTotal*2) await secretAward("podem_s_kolen",monthKey);
+    const twoMonthsAgo = new Date(Date.UTC(todayDate.getUTCFullYear(),todayDate.getUTCMonth()-2,1));
+    const twoMonthsKey = finalEarningsMonthKey(twoMonthsAgo);
+    const monthEarnings = key => Object.entries(user.days).reduce((sum,[date,row])=>sum+(date.startsWith(key+"-")?(Number(row.earnings)||0):0),0);
+    const priorTotal=monthEarnings(priorKey),twoMonthsTotal=monthEarnings(twoMonthsKey);
+    if(priorKey+"-01">=V3_ACHIEVEMENT_START_DATE && priorTotal>0 && user.monthTotal>=priorTotal*1.5) await secretAward("skachok",monthKey);
+    if(priorKey+"-01">=V3_ACHIEVEMENT_START_DATE && priorTotal>0 && user.monthTotal<=priorTotal*0.5) await secretAward("obval",monthKey);
+    if(priorKey+"-01">=V3_ACHIEVEMENT_START_DATE && twoMonthsTotal>0 && priorTotal<=twoMonthsTotal*0.5 && user.monthTotal>=priorTotal*2) await secretAward("podem_s_kolen",monthKey);
     const everyWorkdayHasGoal=workRows.filter(([d])=>d.startsWith(monthKey+"-")).every(([d,row])=>Number(user.dailyGoalHistory?.[d]?.target)>0 && row.total>=Number(user.dailyGoalHistory[d].target));
     if(everyWorkdayHasGoal && user.monthWorkdays>0) await secretAward("kazhdyi_den_kak_nado",monthKey);
   }
