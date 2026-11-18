@@ -10661,7 +10661,6 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
     if(lastPrior && daily>0 && gap>=8) await secretAward("vernulsya",dayKey);
     if(lastPrior && !user.days[dayKey]?.earnings && gap>=7) await secretAward("lentyay",dayKey);
   }
-  if(user.todayGoal>0 && daily>=user.todayGoal && Number(dayKey.slice(8,10))<18) await secretAward("utrenniy_yobar",dayKey);
   if(daily>0 && !Number(user.dailyGoalHistory?.[dayKey]?.target)) await secretAward("bez_plana",dayKey);
   if(user.weekTotal>0) {
     const sorted=[...snapshot.users.values()].map(x=>({id:x.userId,total:x.weekTotal||0})).sort((a,b)=>b.total-a.total);
