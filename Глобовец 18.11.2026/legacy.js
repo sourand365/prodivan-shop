@@ -9801,7 +9801,7 @@ async function v3Calendar(ctx, monthInput) {
   let total=0,workdays=0;
   for(let day=1;day<=daysInMonth;day++){
     const key=year+"-"+String(month).padStart(2,"0")+"-"+String(day).padStart(2,"0");
-    const report=await finalEarningsReport(userId,key),amount=Math.max(0,Math.round(Number(report.total)||0));
+    const report=await finalEarningsReport(userId,key),amount=Math.max(0,Math.round((Number(report.total)||0)-(Number(report.tea)||0)));
     daily.push(amount);if(amount>0){total+=amount;workdays++;}
   }
   const average=workdays?total/workdays:0;
@@ -10541,7 +10541,7 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
   const dayRows = Object.entries(user.days).sort((a,b)=>a[0].localeCompare(b[0]));
   const workRows = dayRows.filter(([d,x])=>x.earnings>0);
   const tipRecords = (snapshot.state.records||[]).filter(x=>x && x.type==="tea" && !x.canceledAt && String(x.userId)===String(userId) && String(x.dateKey)>=V3_ACHIEVEMENT_START_DATE);
-  const tipTotal = [...users.values()].reduce((n,u)=>n+Object.values(u.days).reduce((sum,row)=>sum+(Number(row.tea)||0),0),0);
+  const tipTotal = Object.values(user.days).reduce((n,row)=>n+(Number(row.tea)||0),0);
   const tipCount = tipRecords.length;
   const todayTips = tipRecords.filter(x=>x.dateKey===dayKey);
 
@@ -10566,7 +10566,7 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
   if(monthAgoKey>=V3_ACHIEVEMENT_START_DATE && user.days[monthAgoKey] && daily===user.days[monthAgoKey].earnings) await secretAward("eho",dayKey);
   // Рекорды по дням недели за всё время новой системы.
   let weekdayRecord=0;
-  for(const candidate of snapshot.users.values()) for(const [date,entry] of Object.entries(candidate.days)){const dt=finalEarningsParseDate(date);if(dt && dt.getUTCDay()===weekday && (weekday===1||weekday===6)) weekdayRecord=Math.max(weekdayRecord,Number(entry.earnings)||0);}
+  for(const [date,entry] of Object.entries(user.days)){const dt=finalEarningsParseDate(date);if(dt && dt.getUTCDay()===weekday && (weekday===1||weekday===6)) weekdayRecord=Math.max(weekdayRecord,Number(entry.earnings)||0);}
   if((weekday===1||weekday===6) && daily>0 && daily>=weekdayRecord) await secretAward(weekday===1?"luchshiy_ponedelnik":"luchshaya_subbota",dayKey);
   // Командное среднее за день: общий заработок / общее число курьерских смен.
   const dayWorkers=[...snapshot.users.values()].filter(x=>(Number(x.days?.[dayKey]?.earnings)||0)>0);
