@@ -10,7 +10,7 @@ if (-not (Test-Path (Join-Path $root 'package.json')) -or -not (Test-Path (Join-
   if (-not $entered -or -not (Test-Path (Join-Path $entered 'package.json'))) { throw 'Папка проекта не найдена.' }
   $root = (Resolve-Path $entered).Path
 }
-$required = @('index.js','legacy.js')
+$required = @('index.js','legacy.js','package.json')
 $coreRequired = @('index.js','legacy.js','package.json')
 foreach ($file in $coreRequired) { if (-not (Test-Path (Join-Path $root $file))) { throw "В папке проекта отсутствует $file" } }
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
