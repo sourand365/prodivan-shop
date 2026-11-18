@@ -6958,7 +6958,6 @@ async function finalEarningsShowDay(
           `☕ ${item.tea}\n` +
           `🏢 Этажи — ${item.floors} грн\n` +
           `💰 Итого: ${item.total} грн\n`;
-          const average = await v3AverageForPeriod(item.userId, period, key);
       }
     }
 
@@ -7792,7 +7791,7 @@ async function finalEarningsShowPeriod(
       }
 
       const average = await v3AverageForPeriod(userId, period, data.currentKey);
-      text += "\\n📊 Среднее за рабочий день — " + average.average + " грн (" + average.days + " дн.)";
+      text += "\n📊 Среднее за рабочий день — " + average.average + " грн (" + average.days + " дн.)";
       await ctx.reply(
         text
       );
@@ -7855,7 +7854,7 @@ async function finalEarningsShowPeriod(
           text +=
             `💰 Итого: ${item.total} грн\n`;
           const average = await v3AverageForPeriod(item.userId, period, data.currentKey);
-          text += `📊 Среднее/рабочий день: ${average.average} грн (${average.days} дн.)\\n`;
+          text += `📊 Среднее/рабочий день: ${average.average} грн (${average.days} дн.)\n`;
 
           if (
             target > 0
@@ -8066,7 +8065,7 @@ async function finalEarningsShowPeriodKey(ctx, period, key, mode) {
       `🎯 Квесты — ${mine.quests} грн\n\n` +
       `💰 ИТОГО — ${mine.total} грн`;
           const average = await v3AverageForPeriod(userId, period, key);
-          text += `\\n📊 Среднее за рабочий день — ${average.average} грн (${average.days} дн.)`;
+          text += `\n📊 Среднее за рабочий день — ${average.average} грн (${average.days} дн.)`;
 
   } else if (!data.length) {
 
@@ -9773,7 +9772,8 @@ async function v3AverageForPeriod(userId, period, key) {
     const pkey=period==="week"?finalEarningsWeekKey(parsed):finalEarningsMonthKey(parsed);
     const item=day?.[String(userId)]||{};
     const sum=(Number(item.glovo)||0)+(Number(item.bolt)||0)+(Number(item.ipost)||Number(item.iposr)||0)+(Number(item.bolttr)||0)+(Number(item.personal)||0)+(Number(item.floors)||0)+(Number(item.quests)||0);
-    if(pkey===key) {\n      let worked = sum > 0;
+    if(pkey===key) {
+      let worked = sum > 0;
           if (!worked) { const tea = await finalEarningsTeaForDate(date); worked = Number(tea?.[String(userId)]?.amount) > 0; }\n      if (worked) days.add(finalEarningsISODate(parsed));
           }
   }
