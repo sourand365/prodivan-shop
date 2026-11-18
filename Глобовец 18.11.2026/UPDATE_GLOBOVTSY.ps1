@@ -1,73 +1,111 @@
-﻿$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Stop'
 $root = [Environment]::GetEnvironmentVariable('GLOBOVETS_DIR')
 if (-not $root) { $root = (Get-Location).Path }
 $root = (Resolve-Path $root).Path
+
 Write-Host ''
-Write-Host '=== ОБНОВЛЕНИЕ ГЛОБОВЦЕВ ===' -ForegroundColor Cyan
-Read-Host 'Сначала останови бота (Ctrl+C в его окне), затем нажми Enter'
+Write-Host '=== GLOBOVETS 3.1.0 UPDATE ===' -ForegroundColor Cyan
+Read-Host 'Stop the bot with Ctrl+C, then press Enter'
+
 if (-not (Test-Path (Join-Path $root 'package.json')) -or -not (Test-Path (Join-Path $root 'index.js'))) {
-  $entered = Read-Host 'Укажи полный путь к папке globovets-standalone'
-  if (-not $entered -or -not (Test-Path (Join-Path $entered 'package.json'))) { throw 'Папка проекта не найдена.' }
+  $entered = Read-Host 'Enter the full path to the Globovets 3.1.0 project folder'
+  if (-not $entered -or -not (Test-Path (Join-Path $entered 'package.json'))) {
+    throw 'Project folder not found.'
+  }
   $root = (Resolve-Path $entered).Path
 }
-$required = @('index.js','legacy.js','package.json')
-$coreRequired = @('index.js','legacy.js','package.json')
-foreach ($file in $coreRequired) { if (-not (Test-Path (Join-Path $root $file))) { throw "В папке проекта отсутствует $file" } }
+
+$required = @('index.js', 'legacy.js', 'package.json')
+foreach ($file in $required) {
+  if (-not (Test-Path (Join-Path $root $file))) {
+    throw "Required project file is missing: $file"
+  }
+}
+
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $backupRoot = Join-Path (Split-Path $root -Parent) ("globovets-backup-" + $stamp)
 $backup = Join-Path $backupRoot 'project'
 New-Item -ItemType Directory -Path $backup -Force | Out-Null
-Write-Host 'Создаю резервную копию проекта...' -ForegroundColor Yellow
-$exclude = @((Join-Path $root 'node_modules'), (Join-Path $root '.git'), (Join-Path $root 'data\backups'))
+
+Write-Host 'Creating project backup...' -ForegroundColor Yellow
+$exclude = @(
+  (Join-Path $root 'node_modules'),
+  (Join-Path $root '.git'),
+  (Join-Path $root 'data\backups')
+)
 & robocopy $root $backup /E /XD $exclude /R:1 /W:1 /NFL /NDL /NJH /NJS | Out-Null
-if ($LASTEXITCODE -ge 8) { throw 'Не удалось создать резервную копию. Обновление отменено.' }
+if ($LASTEXITCODE -ge 8) {
+  throw 'Backup failed. Update cancelled.'
+}
+
 $hadLock = Test-Path (Join-Path $root 'package-lock.json')
 $temp = Join-Path $env:TEMP ("globovets-update-" + $stamp)
 New-Item -ItemType Directory -Path $temp -Force | Out-Null
-$base = 'https://raw.githubusercontent.com/sourand365/prodivan-shop/main/%D0%93%D0%BB%D0%BE%D0%B1%D0%BE%D0%B2%D0%B5%D1%86%2018.11.2026/
+$base = 'https://raw.githubusercontent.com/sourand365/prodivan-shop/main/%D0%93%D0%BB%D0%BE%D0%B1%D0%BE%D0%B2%D0%B5%D1%86%2018.11.2026/'
+
 try {
-  Write-Host 'Скачиваю файлы обновления из GitHub...' -ForegroundColor Yellow
+  Write-Host 'Downloading Globovets 3.1.0 files...' -ForegroundColor Yellow
   foreach ($file in $required) {
-    $relativeUrl = $file -replace '\\','/'
     $tempFile = Join-Path $temp $file
-    New-Item -ItemType Directory -Path (Split-Path $tempFile -Parent) -Force | Out-Null
-    Invoke-WebRequest -Uri ($base + $relativeUrl) -OutFile $tempFile -UseBasicParsing
-    if ((Get-Item $tempFile).Length -lt 10) { throw "Получен пустой или повреждённый файл: $file" }
+    Invoke-WebRequest -Uri ($base + $file) -OutFile $tempFile -UseBasicParsing
+    if ((Get-Item $tempFile).Length -lt 10) {
+      throw "Downloaded file is empty or damaged: $file"
+    }
   }
+
   foreach ($file in $required) {
-    $source = Join-Path $temp $file
-    $destination = Join-Path $root $file
-    New-Item -ItemType Directory -Path (Split-Path $destination -Parent) -Force | Out-Null
-    Copy-Item $source $destination -Force
+    Copy-Item (Join-Path $temp $file) (Join-Path $root $file) -Force
   }
-  Write-Host 'Устанавливаю зависимости...' -ForegroundColor Yellow
+
+  Write-Host 'Installing dependencies...' -ForegroundColor Yellow
   Push-Location $root
   & npm install
-  if ($LASTEXITCODE -ne 0) { throw 'npm install завершился с ошибкой.' }
-  Write-Host 'Проверяю синтаксис файлов...' -ForegroundColor Yellow
+  if ($LASTEXITCODE -ne 0) {
+    throw 'npm install failed.'
+  }
+
+  Write-Host 'Checking syntax...' -ForegroundColor Yellow
   & npm run check
-  if ($LASTEXITCODE -ne 0) { throw 'Проверка npm run check не пройдена.' }
+  if ($LASTEXITCODE -ne 0) {
+    throw 'npm run check failed.'
+  }
   Pop-Location
+
   Write-Host ''
-  Write-Host 'ОБНОВЛЕНИЕ УСПЕШНО ЗАВЕРШЕНО!' -ForegroundColor Green
-  Write-Host 'Резервная копия: ' $backupRoot
-  Write-Host 'Файл .env и база data\globovets.sqlite не перезаписывались.'
-  Write-Host 'Перезапусти бота командой npm start.'
-} catch {
-  if ((Get-Location).Path -eq $root) { Pop-Location }
+  Write-Host 'GLOBOVETS 3.1.0 UPDATE COMPLETED!' -ForegroundColor Green
+  Write-Host ('Backup: ' + $backupRoot)
+  Write-Host 'The .env file and data\globovets.sqlite database were not overwritten.'
+  Write-Host 'Restart the bot with: npm start'
+}
+catch {
+  if ((Get-Location).Path -eq $root) {
+    Pop-Location
+  }
+
   Write-Host ''
-  Write-Host ('ОШИБКА: ' + $_.Exception.Message) -ForegroundColor Red
-  Write-Host 'Возвращаю исходные файлы из резервной копии...' -ForegroundColor Yellow
+  Write-Host ('ERROR: ' + $_.Exception.Message) -ForegroundColor Red
+  Write-Host 'Restoring original files...' -ForegroundColor Yellow
+
   foreach ($file in $required) {
     $saved = Join-Path $backup $file
-    if (Test-Path $saved) { Copy-Item $saved (Join-Path $root $file) -Force }
+    if (Test-Path $saved) {
+      Copy-Item $saved (Join-Path $root $file) -Force
+    }
   }
+
   $savedLock = Join-Path $backup 'package-lock.json'
-  if ($hadLock -and (Test-Path $savedLock)) { Copy-Item $savedLock (Join-Path $root 'package-lock.json') -Force }
-  elseif (-not $hadLock) { Remove-Item (Join-Path $root 'package-lock.json') -Force -ErrorAction SilentlyContinue }
-  Write-Host 'Исходные index.js, legacy.js и package.json восстановлены.'
-  Write-Host 'База SQLite и .env не изменялись.'
+  if ($hadLock -and (Test-Path $savedLock)) {
+    Copy-Item $savedLock (Join-Path $root 'package-lock.json') -Force
+  }
+  elseif (-not $hadLock) {
+    Remove-Item (Join-Path $root 'package-lock.json') -Force -ErrorAction SilentlyContinue
+  }
+
+  Write-Host 'Original project files restored. SQLite database and .env were not changed.'
   exit 1
-} finally {
-  if (Test-Path $temp) { Remove-Item $temp -Recurse -Force -ErrorAction SilentlyContinue }
+}
+finally {
+  if (Test-Path $temp) {
+    Remove-Item $temp -Recurse -Force -ErrorAction SilentlyContinue
+  }
 }
