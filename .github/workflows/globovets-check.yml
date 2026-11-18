@@ -5,6 +5,8 @@ on:
     paths:
       - 'index.js'
       - 'legacy.js'
+      - 'MotoConnect/index.js'
+      - 'MotoConnect/legacy.js'
       - '.github/workflows/globovets-check.yml'
   push:
     branches:
@@ -23,3 +25,5 @@ jobs:
         run: |
           node --check index.js
           node --check legacy.js
+          node --check MotoConnect/index.js
+          node --check MotoConnect/legacy.js
