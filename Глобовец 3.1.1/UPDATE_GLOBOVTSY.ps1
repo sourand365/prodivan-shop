@@ -41,7 +41,7 @@ if ($LASTEXITCODE -ge 8) {
 $hadLock = Test-Path (Join-Path $root 'package-lock.json')
 $temp = Join-Path $env:TEMP ("globovets-update-" + $stamp)
 New-Item -ItemType Directory -Path $temp -Force | Out-Null
-$repoPath = 'Глобовец 3.1.1'
+$repoPathEncoded = '%D0%93%D0%BB%D0%BE%D0%B2%D0%B5%D1%86%203.1.1'
 
 try {
   Write-Host 'Downloading Globovets 3.1.1 files from GitHub (raw)...' -ForegroundColor Yellow
@@ -49,9 +49,7 @@ try {
 
   foreach ($file in $required) {
     Write-Host ('  Downloading: ' + $file)
-    $relativePath = $repoPath + '/' + $file
-    $encodedPath = (($relativePath -split '/') | ForEach-Object { [Uri]::EscapeDataString($_) }) -join '/'
-    $url = 'https://raw.githubusercontent.com/sourand365/prodivan-shop/main/' + $encodedPath
+    $url = 'https://raw.githubusercontent.com/sourand365/prodivan-shop/main/' + $repoPathEncoded + '/' + $file
     $destination = Join-Path $temp $file
     try {
       Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $destination
