@@ -9856,7 +9856,7 @@ const V3_ACHIEVEMENTS = [
   {id:"kasar",name:"Касарь",description:"1 000 грн чаевых за один день",repeat:"day"},
   {id:"chainik",name:"Чайник",description:"2 000 грн чаевых за один день",repeat:"day"},
   {id:"shlyuha_klienta",name:"Шлюшка клиента",description:"2 000 грн чаевых за один день",repeat:"day"},
-  {id:"pidaрас",name:"Пидарас",description:"5 000 грн чаевых за один день",repeat:"day"},
+  {id:"pidaras",name:"Пидарас",description:"5 000 грн чаевых за один день",repeat:"day"},
   {id:"otsosal_klientu",name:"Отсосал клиенту",description:"Получить 1 000 грн чаевых одним начислением",repeat:"once"},
   {id:"chainaya_imperiya",name:"Чайная империя",description:"30 000 грн чаевых за месяц",repeat:"month"},
   {id:"rab_100",name:"Ебать ты раб",description:"Выполнить дневную цель на 100%",repeat:"day"},
@@ -10014,7 +10014,7 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
   if(tea>=1000) await award("kasar",dayKey);
   if(tea>=2000) await award("chainik",dayKey);
   if(tea>=2000) await award("shlyuha_klienta",dayKey);
-  if(tea>=5000) await award("pidaрас",dayKey);
+  if(tea>=5000) await award("pidaras",dayKey);
   if(user.maxSingleTip>=1000) await award("otsosal_klientu","all");
   if(user.monthTea>=30000) await award("chainaya_imperiya",monthKey);
   const dailyGoal=user.todayGoal;
@@ -10029,17 +10029,7 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
 }
 
 async function v3CheckAchievements(userId) {
-  const snapshot=await v3AchievementBuildSnapshot();
-  if(snapshot.state.achievementsEnabled===false) return;
-  const newAwards=[];
-  await v3EvaluateAchievementsForUser(snapshot,String(userId),newAwards);
-  if(!newAwards.length) return;
-  await finalEarningsSave(snapshot.state);
-  for(const item of newAwards){
-    const meta=v3AchievementGetMeta(item.achievementId);
-    try { await bot.telegram.sendMessage(item.userId,"🏆 НОВОЕ ДОСТИЖЕНИЕ!\n\n"+meta.name+"\n"+meta.description); }
-    catch(error){console.error("V3 achievement notification:",item.userId,error.message);}
-  }
+  await v3EvaluateAllAchievements();
 }
 
 async function v3EvaluateAllAchievements() {
@@ -10148,7 +10138,7 @@ async function v3AdminShow(ctx, section = "menu", edit = false) {
   } else if (section === "settings") {
     text += "\n\n⚙️ ПАРАМЕТРЫ БОТА\nЧасовой пояс: " + TIMEZONE + "\nАдминистраторы: " + ADMIN_IDS.join(", ") + "\nЧат(ы) дневных отчётов: " + ([...(state.goalReportChatIds||[]),state.goalReportChatId].filter(Boolean).join(", ") || "не настроены") + "\nЛимит таблицы: " + MAX_PEOPLE_PER_DAY + " человека в день.";
   }
-  if (section !== "menu") keyboard = { inline_keyboard: [[{ text: "⬅️ В админ-панель", callback_data: "v3_admin_menu" }]] };
+  if (section !== "menu" && section !== "achievements") keyboard = { inline_keyboard: [[{ text: "⬅️ В админ-панель", callback_data: "v3_admin_menu" }]] };
   if (edit) {
     try { await ctx.editMessageText(text,{reply_markup:keyboard}); }
     catch { await ctx.reply(text,{reply_markup:keyboard}); }
