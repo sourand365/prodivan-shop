@@ -41,7 +41,7 @@ if ($LASTEXITCODE -ge 8) {
 $hadLock = Test-Path (Join-Path $root 'package-lock.json')
 $temp = Join-Path $env:TEMP ("globovets-update-" + $stamp)
 New-Item -ItemType Directory -Path $temp -Force | Out-Null
-$base = 'https://raw.githubusercontent.com/sourand365/prodivan-shop/main/%D0%93%D0%BB%D0%BE%D0%B1%D0%BE%D0%B2%D0%B5%D1%86%2018.11.2026/'
+$base = 'https://raw.githubusercontent.com/sourand365/prodivan-shop/main/%D0%93%D0%BB%D0%BE%D0%B2%D0%BE%D0%B2%D0%B5%D1%86%203.1.1/'
 
 try {
   Write-Host 'Downloading Globovets 3.1.1 files...' -ForegroundColor Yellow
