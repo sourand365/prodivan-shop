@@ -12,14 +12,7 @@ if (-not (Test-Path (Join-Path $root 'package.json')) -or -not (Test-Path (Join-
 }
 $required = @(
   'index.js',
-  'legacy.js',
-  'package.json',
-  'assets\complaint-audio-01.b64',
-  'assets\complaint-audio-02.b64',
-  'assets\complaint-audio-03.b64',
-  'assets\complaint-audio-04a.b64',
-  'assets\complaint-audio-04b.b64',
-  'assets\complaint-audio-04c.b64'
+  'legacy.js'
 )
 $coreRequired = @('index.js','legacy.js','package.json')
 foreach ($file in $coreRequired) { if (-not (Test-Path (Join-Path $root $file))) { throw "В папке проекта отсутствует $file" } }
@@ -34,7 +27,7 @@ if ($LASTEXITCODE -ge 8) { throw 'Не удалось создать резер�
 $hadLock = Test-Path (Join-Path $root 'package-lock.json')
 $temp = Join-Path $env:TEMP ("globovets-update-" + $stamp)
 New-Item -ItemType Directory -Path $temp -Force | Out-Null
-$base = 'https://raw.githubusercontent.com/sourand365/prodivan-shop/c10cd79376e05dc7b7cc6a9c61d31e9e68f19d36/globovets-standalone/'
+$base = 'https://raw.githubusercontent.com/sourand365/prodivan-shop/main/'
 try {
   Write-Host 'Скачиваю файлы обновления из GitHub...' -ForegroundColor Yellow
   foreach ($file in $required) {

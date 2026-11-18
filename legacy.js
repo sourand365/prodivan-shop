@@ -6760,303 +6760,6 @@ async function finalEarningsReport(
 
 
 // ============================================================
-// 🏍 УЧЁТ КИЛОМЕТРАЖА
-// ============================================================
-
-const MILEAGE_COLLECTION = "courier-mileage-v1";
-const MILEAGE_KEY = "main";
-
-async function mileageLoad() {
-  const collection = db.collection(MILEAGE_COLLECTION);
-  const doc = await collection.findOne({ key: MILEAGE_KEY });
-  if (doc && doc.data) {
-    if (!doc.data.users) doc.data.users = {};
-    return doc.data;
-  }
-  const state = { users: {} };
-  await collection.updateOne(
-    { key: MILEAGE_KEY },
-    { $set: { key: MILEAGE_KEY, data: state, updatedAt: Date.now() } },
-    { upsert: true }
-  );
-  return state;
-}
-
-async function mileageSave(state) {
-  await db.collection(MILEAGE_COLLECTION).updateOne(
-    { key: MILEAGE_KEY },
-    { $set: { key: MILEAGE_KEY, data: state, updatedAt: Date.now() } },
-    { upsert: true }
-  );
-}
-
-function mileageDateKey() {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: TIMEZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).formatToParts(new Date());
-  const values = {};
-  for (const part of parts) {
-    if (part.type !== "literal") values[part.type] = part.value;
-  }
-  return `${values.year}-${values.month}-${values.day}`;
-}
-
-function mileageRound(value) {
-  return Math.round((Number(value) || 0) * 100) / 100;
-}
-
-function mileageDistance(readings) {
-  if (!Array.isArray(readings) || readings.length < 2) return 0;
-  let total = 0;
-  for (let i = 1; i < readings.length; i++) {
-    const delta = Number(readings[i]) - Number(readings[i - 1]);
-    if (Number.isFinite(delta) && delta >= 0) total += delta;
-  }
-  return mileageRound(total);
-}
-
-function mileageFormat(value) {
-  return String(mileageRound(value));
-}
-
-async function mileageForDate(userId, dateKey) {
-  const state = await mileageLoad();
-  const user = state.users[String(userId)];
-  const day = user && user.days && user.days[dateKey];
-  return day ? mileageDistance(day.readings || []) : 0;
-}
-
-async function mileageForPeriod(userId, period) {
-  const state = await mileageLoad();
-  const user = state.users[String(userId)];
-  if (!user || !user.days) return 0;
-  const now = getNowKyiv();
-  const periodKey = period === "week" ? getWeekKey(now) : getDateKey(new Date(now.getFullYear(), now.getMonth(), 1));
-  let total = 0;
-  for (const [dateKey, day] of Object.entries(user.days)) {
-    const date = new Date(dateKey + "T12:00:00");
-    if (Number.isNaN(date.getTime())) continue;
-    const key = period === "week" ? getWeekKey(date) : getDateKey(new Date(date.getFullYear(), date.getMonth(), 1));
-    if (key === periodKey) total += mileageDistance(day.readings || []);
-  }
-  return mileageRound(total);
-}
-
-async function mileageAllForDate(dateKey) {
-  const state = await mileageLoad();
-  const result = {};
-  for (const [id, user] of Object.entries(state.users || {})) {
-    const day = user.days && user.days[dateKey];
-    if (day) result[String(id)] = mileageDistance(day.readings || []);
-  }
-  return result;
-}
-
-async function mileageAllForPeriod(period) {
-  const state = await mileageLoad();
-  const now = getNowKyiv();
-  const periodKey = period === "week" ? getWeekKey(now) : getDateKey(new Date(now.getFullYear(), now.getMonth(), 1));
-  const result = {};
-  for (const [id, user] of Object.entries(state.users || {})) {
-    let total = 0;
-    for (const [dateKey, day] of Object.entries(user.days || {})) {
-      const date = new Date(dateKey + "T12:00:00");
-      if (Number.isNaN(date.getTime())) continue;
-      const key = period === "week" ? getWeekKey(date) : getDateKey(new Date(date.getFullYear(), date.getMonth(), 1));
-      if (key === periodKey) total += mileageDistance(day.readings || []);
-    }
-    result[String(id)] = mileageRound(total);
-  }
-  return result;
-}
-
-const mileageCancelPending = new Map();
-
-bot.hears(/^км\s+отмена$/i, async ctx => {
-  try {
-    const id = String(ctx.from.id);
-    const today = mileageDateKey();
-    const state = await mileageLoad();
-    const user = state.users[id];
-    const day = user && user.days && user.days[today];
-    if (!day || !Array.isArray(day.readings) || day.readings.length === 0) {
-      await ctx.reply("ℹ️ За сегодня нет показаний пробега, которые можно отменить.");
-      return;
-    }
-
-    const readings = day.readings;
-    let baselineCount = 0;
-    const priorDates = Object.keys(user.days).filter(k => k < today).sort();
-    if (priorDates.length) {
-      const priorDay = user.days[priorDates[priorDates.length - 1]];
-      const priorReadings = priorDay && priorDay.readings;
-      if (Array.isArray(priorReadings) && priorReadings.length &&
-          Number(readings[0]) === Number(priorReadings[priorReadings.length - 1])) {
-        baselineCount = 1;
-      }
-    }
-    if (readings.length <= baselineCount) {
-      await ctx.reply("ℹ️ Сегодня ещё нет введённых показаний для отмены. Начальное показание с прошлого дня не удаляется.");
-      return;
-    }
-
-    const token = `${id}:${today}:${Date.now()}`;
-    mileageCancelPending.set(token, {
-      userId: id,
-      dateKey: today,
-      lastReading: Number(readings[readings.length - 1]),
-      readingCount: readings.length
-    });
-    await ctx.reply(
-      "⚠️ Отменить последнее показание одометра " +
-      mileageFormat(readings[readings.length - 1]) + " км за " + today + "?",
-      {
-        reply_markup: {
-          inline_keyboard: [[
-            { text: "✅ Да, отменить", callback_data: "kmcancel_yes:" + token },
-            { text: "❌ Нет", callback_data: "kmcancel_no:" + token }
-          ]]
-        }
-      }
-    );
-  } catch (error) {
-    console.error("MILEAGE CANCEL PREPARE ERROR:", error);
-    await ctx.reply("❌ Не удалось подготовить отмену показания.");
-  }
-});
-
-bot.action(/^kmcancel_(yes|no):(.+)$/i, async ctx => {
-  try {
-    const action = ctx.match[1].toLowerCase();
-    const token = ctx.match[2];
-    const pending = mileageCancelPending.get(token);
-    if (!pending || String(ctx.from.id) !== pending.userId) {
-      await ctx.answerCbQuery("Запрос отмены устарел. Отправь «км отмена» заново.", { show_alert: true });
-      return;
-    }
-    mileageCancelPending.delete(token);
-    await ctx.answerCbQuery();
-
-    if (action === "no") {
-      try { await ctx.editMessageText("Отмена показания не выполнена."); } catch {}
-      return;
-    }
-
-    const state = await mileageLoad();
-    const user = state.users[pending.userId];
-    const day = user && user.days && user.days[pending.dateKey];
-    if (!day || !Array.isArray(day.readings) ||
-        day.readings.length !== pending.readingCount ||
-        Number(day.readings[day.readings.length - 1]) !== pending.lastReading ||
-        mileageDateKey() !== pending.dateKey) {
-      try { await ctx.editMessageText("⚠️ Показания изменились или наступил новый день. Ничего не удалено — отправь «км отмена» заново."); } catch {}
-      return;
-    }
-
-    let baselineCount = 0;
-    const priorDates = Object.keys(user.days).filter(k => k < pending.dateKey).sort();
-    if (priorDates.length) {
-      const priorDay = user.days[priorDates[priorDates.length - 1]];
-      const priorReadings = priorDay && priorDay.readings;
-      if (Array.isArray(priorReadings) && priorReadings.length &&
-          Number(day.readings[0]) === Number(priorReadings[priorReadings.length - 1])) {
-        baselineCount = 1;
-      }
-    }
-    if (day.readings.length <= baselineCount) {
-      try { await ctx.editMessageText("Начальное показание прошлого дня защищено и не удаляется."); } catch {}
-      return;
-    }
-
-    const removed = day.readings.pop();
-    if (day.readings.length === 0) {
-      delete user.days[pending.dateKey];
-    } else {
-      day.updatedAt = Date.now();
-    }
-    await mileageSave(state);
-    const distance = mileageDistance(day.readings || []);
-    const resultText =
-      "↩️ Показание отменено: " + mileageFormat(removed) + " км\n" +
-      "Осталось показаний: " + ((day.readings || []).length - baselineCount) + "\n" +
-      "Пробег за день после отмены: " + mileageFormat(distance) + " км";
-    try { await ctx.editMessageText(resultText); } catch { await ctx.reply(resultText); }
-  } catch (error) {
-    console.error("MILEAGE CANCEL CONFIRM ERROR:", error);
-    try { await ctx.answerCbQuery("Не удалось отменить показание.", { show_alert: true }); } catch {}
-  }
-});
-
-bot.hears(/^км(?:\s+(\d+(?:[.,]\d+)?))?$/i, async ctx => {
-  try {
-    const raw = ctx.match && ctx.match[1];
-    if (!raw) {
-      await ctx.reply("🏍 Чтобы записать одометр, отправь: км 17000\nКаждая следующая запись фиксирует новое показание. Пробег считается по разнице показаний.");
-      return;
-    }
-    const odometer = Number(String(raw).replace(",", "."));
-    if (!Number.isFinite(odometer) || odometer < 0) {
-      await ctx.reply("❌ Укажи корректное показание одометра, например: км 17000");
-      return;
-    }
-    const state = await mileageLoad();
-    const id = String(ctx.from.id);
-    const today = mileageDateKey();
-    const name = getTelegramDisplayName(ctx);
-    if (!state.users[id]) state.users[id] = { name, days: {} };
-    const user = state.users[id];
-    user.name = name || user.name || "Курьер";
-    if (!user.days) user.days = {};
-    if (!user.days[today]) {
-      let previous = null;
-      const priorDates = Object.keys(user.days).filter(k => k < today).sort();
-      if (priorDates.length) {
-        const priorDay = user.days[priorDates[priorDates.length - 1]];
-        const readings = priorDay && priorDay.readings;
-        if (Array.isArray(readings) && readings.length) previous = Number(readings[readings.length - 1]);
-      }
-      user.days[today] = { readings: previous !== null && Number.isFinite(previous) ? [previous] : [], createdAt: Date.now() };
-    }
-    const day = user.days[today];
-    const readings = day.readings || (day.readings = []);
-    if (readings.length && odometer < Number(readings[readings.length - 1])) {
-      await ctx.reply("❌ Новое показание меньше предыдущего (" + mileageFormat(readings[readings.length - 1]) + " км). Проверь число. Если одометр сбрасывался, напиши администратору.");
-      return;
-    }
-    readings.push(mileageRound(odometer));
-    day.updatedAt = Date.now();
-    await mileageSave(state);
-    const distance = mileageDistance(readings);
-    const priorDatesForDisplay = Object.keys(user.days).filter(k => k < today).sort();
-    let hasBaseline = false;
-    if (priorDatesForDisplay.length) {
-      const previousDay = user.days[priorDatesForDisplay[priorDatesForDisplay.length - 1]];
-      const previousReadings = previousDay && previousDay.readings;
-      hasBaseline = Array.isArray(previousReadings) && previousReadings.length > 0 &&
-        readings.length > 0 &&
-        Number(readings[0]) === Number(previousReadings[previousReadings.length - 1]);
-    }
-    const enteredCount = readings.length - (hasBaseline ? 1 : 0);
-    let answer = "🏍 Показание одометра записано: " + mileageFormat(odometer) + " км\n";
-    if (enteredCount >= 3) {
-      answer += "\n";
-      for (let i = 1; i < readings.length; i++) {
-        answer += "Акум " + i + " — " + mileageFormat(Math.max(0, Number(readings[i]) - Number(readings[i - 1]))) + " км\n";
-      }
-    }
-    answer += "\nОбщий пробег за день: " + mileageFormat(distance) + " км";
-    await ctx.reply(answer);
-  } catch (error) {
-    console.error("MILEAGE INPUT ERROR:", error);
-    await ctx.reply("❌ Не удалось сохранить километраж.");
-  }
-});
-
-
-// ============================================================
 // 💰 МОЙ ДЕНЬ
 // ============================================================
 
@@ -7095,8 +6798,7 @@ bot.hears(
 
         "━━━━━━━━━━━━━━\n" +
 
-        `💰 ИТОГО — ${report.total} грн\n` +
-        `🏍 Пробег за день — ${await mileageForDate(ctx.from.id, finalEarningsToday())} км`
+        `💰 ИТОГО — ${report.total} грн`
       );
 
     } catch (error) {
@@ -7236,7 +6938,6 @@ async function finalEarningsShowDay(
     } else {
 
       for (const [index, item] of entries.entries()) {
-        const mileage = await mileageForDate(item.userId, dateKey);
         text +=
           `${index + 1}. ${item.name}\n` +
           `🟡 ${item.glovo} | ` +
@@ -7246,8 +6947,7 @@ async function finalEarningsShowDay(
           `👤 ${item.personal} | ` +
           `☕ ${item.tea}\n` +
           `🏢 Этажи — ${item.floors} грн\n` +
-          `💰 Итого: ${item.total} грн\n` +
-          `🏍 Пробег: ${mileage} км\n\n`;
+          `💰 Итого: ${item.total} грн\n\n`;
       }
     }
 
@@ -8080,9 +7780,6 @@ async function finalEarningsShowPeriod(
           } не установлена`;
       }
 
-      text +=
-        `🏍 Пробег за период — ${await mileageForPeriod(userId, period)} км\n`;
-
       await ctx.reply(
         text
       );
@@ -8144,9 +7841,6 @@ async function finalEarningsShowPeriod(
 
           text +=
             `💰 Итого: ${item.total} грн\n`;
-
-          text +=
-            `🏍 Пробег за период — ${await mileageForPeriod(item.userId, period)} км\n`;
 
           if (
             target > 0
