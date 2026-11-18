@@ -9823,3 +9823,78 @@ async function v3AverageForPeriod(userId, period, key) {
   const total=(mine?.total)||0;
   return {days:days.size,average:days.size?Math.round(total/days.size):0};
 }
+
+
+// ============================================================
+// V3 ADMIN PANEL — доступ только ADMIN_IDS
+// ============================================================
+
+function v3AdminKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "📊 Общая статистика", callback_data: "v3_admin_stats" }],
+      [{ text: "🎯 Цели курьеров", callback_data: "v3_admin_goals" }],
+      [{ text: "👥 Пользователи", callback_data: "v3_admin_users" }],
+      [{ text: "📜 История изменений", callback_data: "v3_admin_history" }],
+      [{ text: "⏰ Напоминания", callback_data: "v3_admin_reminders" }],
+      [{ text: "⚙️ Параметры бота", callback_data: "v3_admin_settings" }]
+    ]
+  };
+}
+
+async function v3AdminShow(ctx, section = "menu", edit = false) {
+  if (!isAdmin(ctx)) {
+    if (ctx.answerCbQuery) await ctx.answerCbQuery("Нет доступа");
+    else await ctx.reply("Нет доступа ❌");
+    return;
+  }
+  let text = "🛠 АДМИН-ПАНЕЛЬ\n━━━━━━━━━━━━━━";
+  let keyboard = v3AdminKeyboard();
+  const state = await v3LoadEarningsState();
+  if (section === "stats") {
+    const today = await finalEarningsBuildDay(finalEarningsToday());
+    const week = await finalEarningsPeriodEntriesForKey("week", finalEarningsWeekKey(finalEarningsParseDate(finalEarningsToday())), state);
+    const month = await finalEarningsPeriodEntriesForKey("month", finalEarningsMonthKey(finalEarningsParseDate(finalEarningsToday())), state);
+    const sum = rows => rows.reduce((n,x) => n + (Number(x.total)||0),0);
+    text += "\n\n📊 ОБЩАЯ СТАТИСТИКА\nСегодня: " + sum(today) + " грн (" + today.length + " кур.)\nНеделя: " + sum(week) + " грн (" + week.length + " кур.)\nМесяц: " + sum(month) + " грн (" + month.length + " кур.)";
+  } else if (section === "goals") {
+    const dateKey = v3DateISO(finalEarningsToday());
+    const lines = [];
+    for (const [id,goal] of Object.entries(state.goals.day || {})) {
+      if (goal?.dateKey !== dateKey) continue;
+      const name = state.users?.[id]?.name || id;
+      const report = await finalEarningsReport(id,dateKey);
+      lines.push(name + " — " + report.total + "/" + goal.target + " грн (" + Math.round(report.total/goal.target*100) + "%)");
+    }
+    text += "\n\n🎯 ЦЕЛИ НА СЕГОДНЯ\n" + (lines.length ? lines.join("\n") : "Дневные цели пока не установлены.");
+    text += "\n\nНедельные и месячные цели сохраняются в своих разделах статистики.";
+  } else if (section === "users") {
+    const users = Object.entries(state.users || {});
+    text += "\n\n👥 ПОЛЬЗОВАТЕЛИ (" + users.length + ")\n" + (users.length ? users.slice(0,50).map(([id,u],i)=>(i+1)+". "+(u?.name||"Без имени")+" — "+id).join("\n") : "Пользователей пока нет.");
+  } else if (section === "history") {
+    const rows = (state.audit || []).slice(-20).reverse();
+    text += "\n\n📜 ПОСЛЕДНИЕ ОПЕРАЦИИ\n" + (rows.length ? rows.map(x=>(x.action==="cancel"?"❌ отмена":x.action==="reset"?"♻️ сброс":"➕ добавление")+" — "+(x.name||x.userId)+": "+x.amount+" грн ("+x.type+")").join("\n") : "История пока пуста.");
+  } else if (section === "reminders") {
+    text += "\n\n⏰ НАПОМИНАНИЯ\nЧасовой пояс: Europe/Kyiv\nДействующие автоматические напоминания сохранены без изменений.\nИзменение их расписания через панель пока не включено.";
+  } else if (section === "settings") {
+    text += "\n\n⚙️ ПАРАМЕТРЫ БОТА\nЧасовой пояс: " + TIMEZONE + "\nАдминистраторы: " + ADMIN_IDS.join(", ") + "\nЧат(ы) дневных отчётов: " + ([...(state.goalReportChatIds||[]),state.goalReportChatId].filter(Boolean).join(", ") || "не настроены") + "\nЛимит таблицы: " + MAX_PEOPLE_PER_DAY + " человека в день.";
+  }
+  if (section !== "menu") keyboard = { inline_keyboard: [[{ text: "⬅️ В админ-панель", callback_data: "v3_admin_menu" }]] };
+  if (edit) {
+    try { await ctx.editMessageText(text,{reply_markup:keyboard}); }
+    catch { await ctx.reply(text,{reply_markup:keyboard}); }
+  } else {
+    await ctx.reply(text,{reply_markup:keyboard});
+  }
+}
+
+bot.hears(/^апанель$/i, async ctx => v3AdminShow(ctx,"menu",false));
+bot.action(/^v3_admin_(menu|stats|goals|users|history|reminders|settings)$/, async ctx => {
+  try {
+    await ctx.answerCbQuery();
+    await v3AdminShow(ctx,ctx.match[1],true);
+  } catch (error) {
+    console.error("V3 ADMIN PANEL:",error);
+    try { await ctx.answerCbQuery("Ошибка ❌"); } catch {}
+  }
+});
