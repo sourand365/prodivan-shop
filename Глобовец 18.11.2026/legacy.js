@@ -10336,7 +10336,7 @@ const V3_SECRET_ACHIEVEMENTS = [
 ];
 
 function v3AchievementGetMeta(id) {
-  return V3_ACHIEVEMENTS.find(x => x.id === id);
+  return V3_ACHIEVEMENTS.find(x => x.id === id) || V3_SECRET_ACHIEVEMENTS.find(x => x.id === id);
 }
 
 function v3AchievementPeriodKey(repeat, dayISO, weekKey, monthKey) {
@@ -10466,7 +10466,9 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
   const user=snapshot.users.get(String(userId));
   if(!user) return;
   const dayKey=snapshot.today, weekKey=snapshot.weekKey, monthKey=snapshot.monthKey;
-  const daily=user.today.total, tea=user.today.tea;
+  const todayDate=finalEarningsParseDate(dayKey);
+  const daily=user.today.earnings, tea=user.today.tea;
+  const goalDaily=user.today.total;
   const award=async(id,period)=>v3AchievementGrant(snapshot,userId,id,period,newAwards);
   if(daily>=2000) await award("dvushka",dayKey);
   if(daily>=10000) await award("korol_smeny",dayKey);
@@ -10487,14 +10489,14 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
   if(user.maxSingleTip>=1000) await award("otsosal_klientu","all");
   if(user.monthTea>=30000) await award("chainaya_imperiya",monthKey);
   const dailyGoal=user.todayGoal;
-  const goalPercent=dailyGoal>0?daily/dailyGoal*100:0;
+  const goalPercent=dailyGoal>0?goalDaily/dailyGoal*100:0;
   if(goalPercent>=100) await award("rab_100",dayKey);
   if(goalPercent>=150) await award("perevypolnil_plan",dayKey);
   if(goalPercent>=200) await award("absolyutny_rab",dayKey);
   if(user.goalStreak>=7) await award("bez_ostanovki",dayKey);
   if(user.goalStreak>=3) await award("na_kurazhe",dayKey);
   if(user.monthGoal>0 && user.monthGoalPercent>=100) await award("rab_mesyatsa",monthKey);
-  if(user.monthTotal>0 && user.monthTotal===snapshot.maxMonth) await award("papa_na_raione",monthKey);
+  if(user.monthTotal>0 && user.monthTotal===snapshot.maxMonth && user.isMonthEnd) await award("papa_na_raione",monthKey);
   // Скрытые достижения — вычисляются по накопленной истории, но только после даты старта.
   const secretAward = async (id, period) => v3AchievementGrant(snapshot,userId,id,period || "all",newAwards);
   const allAwards = snapshot.state.achievements || [];
@@ -10605,9 +10607,11 @@ async function v3EvaluateAllAchievements() {
   }
   for(const item of newAwards){
     const meta=v3AchievementGetMeta(item.achievementId);
-    const message = "🏆 НОВОЕ ДОСТИЖЕНИЕ!\n\n🔥 " + (item.name || "Курьер") +
-      " получил: «" + (meta?.name || item.achievementId) + "»\n" +
-      (meta?.description || "Так держать!") + "\n\n💪 Глобовец видит ваши старания!";
+    const isSecret=!!meta?.secret;
+    const message = "🏆 НОВОЕ ДОСТИЖЕНИЕ!\n\n" +
+      (isSecret ? "🟣 СЕКРЕТНОЕ ДОСТИЖЕНИЕ РАСКРЫТО!\n\n" : "🟡 ОБЫЧНОЕ ДОСТИЖЕНИЕ\n\n") +
+      "🔥 " + (item.name || "Курьер").toUpperCase() + " ПОЛУЧАЕТ: «" + (meta?.name || item.achievementId).toUpperCase() + "»\n\n" +
+      (meta?.description || "Так держать!") + "\n\nЕщё один день, когда этот ублюдок доказал, что остальные просто массовка. 💸🔥";
     try { await bot.telegram.sendMessage(groupChatId,message); }
     catch(error){console.error("V3 achievement group notification:",groupChatId,error.message);}
   }
@@ -10623,8 +10627,23 @@ bot.hears(/^мои достижения$/i,async ctx=>{
 bot.hears(/^достижения$/i,async ctx=>{
   const state=await v3LoadEarningsState();
   const earned=(state.achievements||[]).filter(x=>String(x.userId)===String(ctx.from.id));
-  const lines=V3_ACHIEVEMENTS.map((x,i)=>(i+1)+". "+x.name+" — "+x.description+(earned.some(a=>a.achievementId===x.id)?" ✅":""));
-  await ctx.reply("🏆 СПИСОК ДОСТИЖЕНИЙ ("+V3_ACHIEVEMENTS.length+")\n━━━━━━━━━━━━━━\n"+lines.join("\n"));
+  const ordinary=V3_ACHIEVEMENTS.map((x,i)=>(i+1)+". "+(earned.some(a=>a.achievementId===x.id)?"🟡":"⚫")+" "+x.name);
+  const hidden=V3_SECRET_ACHIEVEMENTS.filter(x=>earned.some(a=>a.achievementId===x.id)).length;
+  const keyboard={inline_keyboard:V3_ACHIEVEMENTS.map(x=>[{text:(earned.some(a=>a.achievementId===x.id)?"🏅 ":"🔒 ")+x.name,callback_data:"v3_ach_"+x.id}]).concat([[{text:"🟣 Скрытые достижения ("+hidden+"/51)",callback_data:"v3_ach_hidden"}]])};
+  await ctx.reply("🏆 ДОСТИЖЕНИЯ\n━━━━━━━━━━━━━━\n🟡 ОБЫЧНЫЕ ("+earned.filter(a=>V3_ACHIEVEMENTS.some(x=>x.id===a.achievementId)).length+"/"+V3_ACHIEVEMENTS.length+")\n"+ordinary.join("\n")+"\n\n🟣 Скрытые: "+hidden+"/51\nНераскрытые секреты не показываются.",{reply_markup:keyboard});
+});
+bot.action("v3_ach_hidden",async ctx=>{
+  const state=await v3LoadEarningsState(),mine=(state.achievements||[]).filter(x=>String(x.userId)===String(ctx.from.id));
+  const count=mine.filter(a=>V3_SECRET_ACHIEVEMENTS.some(x=>x.id===a.achievementId)).length;
+  await ctx.answerCbQuery("Скрытые достижения: "+count+"/51");
+  await ctx.reply("🟣 СЕКРЕТНЫЕ ДОСТИЖЕНИЯ\n━━━━━━━━━━━━━━\nСкрытые: "+count+"/51\nОстальные условия останутся тайной до выполнения.");
+});
+bot.action(/^v3_ach_([a-z0-9_]+)$/,async ctx=>{
+  const id=ctx.match[1],meta=v3AchievementGetMeta(id);
+  if(!meta || meta.secret){await ctx.answerCbQuery("Это секретная награда");return;}
+  const state=await v3LoadEarningsState(),award=(state.achievements||[]).find(x=>String(x.userId)===String(ctx.from.id)&&x.achievementId===id);
+  await ctx.answerCbQuery();
+  await ctx.reply("🏅 "+meta.name+"\n\n"+meta.description+"\n\nСтатус: "+(award?"Получено ✅":"Пока не получено ⚫")+(award?"\nДата: "+String(award.earnedAt).slice(0,10):""));
 });
 
 bot.hears(/^топ достижений$/i,async ctx=>{
