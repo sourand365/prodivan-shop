@@ -6781,6 +6781,11 @@ bot.hears(
           ),
           finalEarningsToday()
         );
+      const dailyGoalState = await v3LoadEarningsState();
+      const dailyGoal = dailyGoalState.goals.day[String(ctx.from.id)];
+      const dailyGoalLine = dailyGoal?.dateKey === v3DateISO(finalEarningsToday())
+        ? "\\n🎯 Цель дня — " + dailyGoal.target + " грн (" + Math.round(report.total / dailyGoal.target * 100) + "%)"
+        : "";
 
       await ctx.reply(
 
@@ -6803,7 +6808,7 @@ bot.hears(
 
         "━━━━━━━━━━━━━━\n" +
 
-        `💰 ИТОГО — ${report.total} грн`
+        `💰 ИТОГО — ${report.total} грн${dailyGoalLine}`
       );
 
     } catch (error) {
@@ -6952,7 +6957,7 @@ async function finalEarningsShowDay(
           `👤 ${item.personal} | ` +
           `☕ ${item.tea}\n` +
           `🏢 Этажи — ${item.floors} грн\n` +
-          `💰 Итого: ${item.total} грн\n\n`;
+          `💰 Итого: ${item.total} грн\n`;\n        const average = await v3AverageForPeriod(item.userId, period, key);\n        text += `📊 Среднее/рабочий день: ${average.average} грн (${average.days} дн.)\\n\\n`;
       }
     }
 
@@ -7785,6 +7790,8 @@ async function finalEarningsShowPeriod(
           } не установлена`;
       }
 
+      const average = await v3AverageForPeriod(userId, period, data.currentKey);
+      text += "\\n📊 Среднее за рабочий день — " + average.average + " грн (" + average.days + " дн.)";
       await ctx.reply(
         text
       );
@@ -7845,7 +7852,7 @@ async function finalEarningsShowPeriod(
             `🎯 Квесты — ${item.quests}\n`;
 
           text +=
-            `💰 Итого: ${item.total} грн\n`;
+            `💰 Итого: ${item.total} грн\n`;\n          const average = await v3AverageForPeriod(item.userId, period, data.currentKey);\n          text += `📊 Среднее/рабочий день: ${average.average} грн (${average.days} дн.)\\n`;
 
           if (
             target > 0
@@ -8054,7 +8061,7 @@ async function finalEarningsShowPeriodKey(ctx, period, key, mode) {
       `☕ Чаевые — ${mine.tea} грн\n` +
       `🏢 Этажи — ${mine.floors} грн\n` +
       `🎯 Квесты — ${mine.quests} грн\n\n` +
-      `💰 ИТОГО — ${mine.total} грн`;
+      `💰 ИТОГО — ${mine.total} грн`;\n    const average = await v3AverageForPeriod(userId, period, key);\n    text += `\\n📊 Среднее за рабочий день — ${average.average} грн (${average.days} дн.)`;
 
   } else if (!data.length) {
 
@@ -9516,7 +9523,7 @@ async function v3AddRecord(data) {
     canceledBy: null
   };
   if (!record.dateKey || !Number.isInteger(record.amount) || record.amount <= 0) return;
-  state.records.push(record);
+  state.users[record.userId] = state.users[record.userId] || { name: record.name };\n  state.users[record.userId].name = record.name;\n  state.records.push(record);
   state.audit.push({ at: record.createdAt, action: "add", recordId: record.id, userId: record.userId, name: record.name, type: record.type, amount: record.amount, by: record.createdBy });
   if (state.records.length > 15000) state.records = state.records.slice(-15000);
   if (state.audit.length > 15000) state.audit = state.audit.slice(-15000);
@@ -9759,7 +9766,7 @@ async function v3AverageForPeriod(userId, period, key) {
     const pkey=period==="week"?finalEarningsWeekKey(parsed):finalEarningsMonthKey(parsed);
     const item=day?.[String(userId)]||{};
     const sum=(Number(item.glovo)||0)+(Number(item.bolt)||0)+(Number(item.ipost)||Number(item.iposr)||0)+(Number(item.bolttr)||0)+(Number(item.personal)||0)+(Number(item.floors)||0)+(Number(item.quests)||0);
-    if(pkey===key && sum>0) days.add(finalEarningsISODate(parsed));
+    if(pkey===key) {\n      let worked = sum > 0;\n      if (!worked) { const tea = await finalEarningsTeaForDate(date); worked = Number(tea?.[String(userId)]?.amount) > 0; }\n      if (worked) days.add(finalEarningsISODate(parsed));\n    }
   }
   const data=await finalEarningsPeriodEntriesForKey(period,key,state);
   const mine=data.find(x=>String(x.userId)===String(userId));
