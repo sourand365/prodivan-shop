@@ -9874,31 +9874,465 @@ async function v3AverageForPeriod(userId, period, key) {
 // ============================================================
 
 const V3_ACHIEVEMENTS = [
-  {id:"dvushka",name:"Двушка",description:"2 000 грн заработка за день",repeat:"day"},
-  {id:"korol_smeny",name:"Король смены",description:"10 000 грн заработка за день",repeat:"day"},
-  {id:"zhirny_kush",name:"Жирный куш",description:"5 000 грн заработка за день",repeat:"day"},
-  {id:"denezhny_dozhd",name:"Денежный дождь",description:"50 000 грн заработка за неделю",repeat:"week"},
-  {id:"denezhny_meshok",name:"Денежный мешок",description:"150 000 грн заработка за месяц",repeat:"month"},
-  {id:"pervyi_vyhod",name:"Первый выход",description:"Первая рабочая смена",repeat:"once"},
-  {id:"trudyaga",name:"Трудяга",description:"7 рабочих дней подряд",repeat:"once"},
-  {id:"bez_otdyha",name:"Без отдыха",description:"10 рабочих дней подряд",repeat:"once"},
-  {id:"zhelezny_chelovek",name:"Железный человек",description:"20 рабочих дней подряд",repeat:"once"},
-  {id:"mashina",name:"Машина",description:"Отработать каждый календарный день месяца",repeat:"month"},
-  {id:"veteran",name:"Ветеран",description:"100 рабочих дней за всё время",repeat:"once"},
-  {id:"pervye_500",name:"Первые 500",description:"Получить 500 грн чаевых одним начислением",repeat:"once"},
-  {id:"kasar",name:"Касарь",description:"1 000 грн чаевых за один день",repeat:"day"},
-  {id:"chainik",name:"Чайник",description:"2 000 грн чаевых за один день",repeat:"day"},
-  {id:"shlyuha_klienta",name:"Шлюшка клиента",description:"2 000 грн чаевых за один день",repeat:"day"},
-  {id:"pidaras",name:"Пидарас",description:"5 000 грн чаевых за один день",repeat:"day"},
-  {id:"otsosal_klientu",name:"Отсосал клиенту",description:"Получить 1 000 грн чаевых одним начислением",repeat:"once"},
-  {id:"chainaya_imperiya",name:"Чайная империя",description:"30 000 грн чаевых за месяц",repeat:"month"},
-  {id:"rab_100",name:"Ебать ты раб",description:"Выполнить дневную цель на 100%",repeat:"day"},
-  {id:"perevypolnil_plan",name:"Перевыполнил план",description:"Выполнить дневную цель на 150%",repeat:"day"},
-  {id:"bez_ostanovki",name:"Без остановки",description:"Выполнить дневную цель 7 дней подряд",repeat:"day"},
-  {id:"rab_mesyatsa",name:"Раб месяца",description:"Выполнить месячную цель на 100%",repeat:"month"},
-  {id:"na_kurazhe",name:"На кураже",description:"Выполнить дневную цель 3 дня подряд",repeat:"day"},
-  {id:"absolyutny_rab",name:"Абсолютный раб",description:"Выполнить дневную цель на 200%",repeat:"day"},
-  {id:"papa_na_raione",name:"Папа на районе",description:"Занять первое место по заработку за месяц; при равенстве получают все лидеры",repeat:"month"}
+  {
+    "id": "dvushka",
+    "name": "Двушка",
+    "description": "2 000 грн заработка за день",
+    "repeat": "day"
+  },
+  {
+    "id": "korol_smeny",
+    "name": "Король смены",
+    "description": "10 000 грн заработка за день",
+    "repeat": "day"
+  },
+  {
+    "id": "zhirny_kush",
+    "name": "Жирный куш",
+    "description": "5 000 грн заработка за день",
+    "repeat": "day"
+  },
+  {
+    "id": "denezhny_dozhd",
+    "name": "Денежный дождь",
+    "description": "50 000 грн заработка за неделю",
+    "repeat": "week"
+  },
+  {
+    "id": "denezhny_meshok",
+    "name": "Денежный мешок",
+    "description": "150 000 грн заработка за месяц",
+    "repeat": "month"
+  },
+  {
+    "id": "pervyi_vyhod",
+    "name": "Первый выход",
+    "description": "Первая рабочая смена",
+    "repeat": "once"
+  },
+  {
+    "id": "trudyaga",
+    "name": "Трудяга",
+    "description": "7 рабочих дней подряд",
+    "repeat": "once"
+  },
+  {
+    "id": "bez_otdyha",
+    "name": "Без отдыха",
+    "description": "10 рабочих дней подряд",
+    "repeat": "once"
+  },
+  {
+    "id": "zhelezny_chelovek",
+    "name": "Железный человек",
+    "description": "20 рабочих дней подряд",
+    "repeat": "once"
+  },
+  {
+    "id": "mashina",
+    "name": "Машина",
+    "description": "Отработать каждый календарный день месяца",
+    "repeat": "month"
+  },
+  {
+    "id": "veteran",
+    "name": "Ветеран",
+    "description": "100 рабочих дней с 19.11.2026",
+    "repeat": "once"
+  },
+  {
+    "id": "pervye_500",
+    "name": "Первые 500",
+    "description": "Получить 500 грн чаевых одним начислением",
+    "repeat": "once"
+  },
+  {
+    "id": "kasar",
+    "name": "Касарь",
+    "description": "1 000 грн чаевых за один день",
+    "repeat": "day"
+  },
+  {
+    "id": "chainik",
+    "name": "Чайник",
+    "description": "2 000 грн чаевых за один день",
+    "repeat": "day"
+  },
+  {
+    "id": "shlyuha_klienta",
+    "name": "Шлюшка клиента",
+    "description": "2 000 грн чаевых одним начислением",
+    "repeat": "once"
+  },
+  {
+    "id": "pidaras",
+    "name": "Пидарас",
+    "description": "5 000 грн чаевых за один день",
+    "repeat": "day"
+  },
+  {
+    "id": "otsosal_klientu",
+    "name": "Отсосал клиенту",
+    "description": "Получить 1 000 грн чаевых одним начислением",
+    "repeat": "once"
+  },
+  {
+    "id": "chainaya_imperiya",
+    "name": "Чайная империя",
+    "description": "30 000 грн чаевых за месяц",
+    "repeat": "month"
+  },
+  {
+    "id": "rab_100",
+    "name": "Ебать ты раб",
+    "description": "Выполнить дневную цель на 100%",
+    "repeat": "day"
+  },
+  {
+    "id": "perevypolnil_plan",
+    "name": "Перевыполнил план",
+    "description": "Выполнить дневную цель на 150%",
+    "repeat": "day"
+  },
+  {
+    "id": "bez_ostanovki",
+    "name": "Без остановки",
+    "description": "Выполнить дневную цель 7 дней подряд",
+    "repeat": "day"
+  },
+  {
+    "id": "rab_mesyatsa",
+    "name": "Раб месяца",
+    "description": "Выполнить месячную цель на 100%",
+    "repeat": "month"
+  },
+  {
+    "id": "na_kurazhe",
+    "name": "На кураже",
+    "description": "Выполнить дневную цель 3 дня подряд",
+    "repeat": "day"
+  },
+  {
+    "id": "absolyutny_rab",
+    "name": "Абсолютный раб",
+    "description": "Выполнить дневную цель на 200%",
+    "repeat": "day"
+  },
+  {
+    "id": "papa_na_raione",
+    "name": "Папа на районе",
+    "description": "Первое место по заработку за месяц; при равенстве награждаются все лидеры",
+    "repeat": "month"
+  }
+];
+
+const V3_SECRET_ACHIEVEMENTS = [
+  {
+    "id": "tri_topora",
+    "name": "Три топора",
+    "description": "Ровно 777 грн чаевых за день",
+    "secret": true
+  },
+  {
+    "id": "kopeika_k_kopeike",
+    "name": "Копейка к копейке",
+    "description": "Ровно 1 000 грн заработка за день",
+    "secret": true
+  },
+  {
+    "id": "huzhe_zarplaty",
+    "name": "Хуже зарплаты",
+    "description": "Чаевых за день больше, чем заработка",
+    "secret": true
+  },
+  {
+    "id": "kazhdyi_den_kak_nado",
+    "name": "Каждый день как надо",
+    "description": "Выполнять дневную цель в каждый рабочий день месяца",
+    "secret": true
+  },
+  {
+    "id": "novogodniy_yobar",
+    "name": "Новогодний ёбарь",
+    "description": "Отработать 31 декабря или 1 января",
+    "secret": true
+  },
+  {
+    "id": "pyatnitsa_13",
+    "name": "Пятница 13-е",
+    "description": "Отработать в пятницу 13-го",
+    "secret": true
+  },
+  {
+    "id": "zerkalo",
+    "name": "Зеркало, блядь",
+    "description": "Ровно 2 222 грн заработка за день",
+    "secret": true
+  },
+  {
+    "id": "dyavolskiy_den",
+    "name": "Дьявольский день",
+    "description": "Ровно 666 грн чаевых за день",
+    "secret": true
+  },
+  {
+    "id": "utrenniy_yobar",
+    "name": "Утренний ёбарь",
+    "description": "Выполнить дневную цель до 18:00",
+    "secret": true
+  },
+  {
+    "id": "otryv_suka",
+    "name": "Отрыв, сука",
+    "description": "Заработать вдвое больше второго места за день",
+    "secret": true
+  },
+  {
+    "id": "vechnyi_top",
+    "name": "Вечный топ",
+    "description": "Занимать первое место 10 дней подряд",
+    "secret": true
+  },
+  {
+    "id": "bliznetsy",
+    "name": "Близнецы",
+    "description": "Два дня подряд заработать одинаковую сумму",
+    "secret": true
+  },
+  {
+    "id": "tysyachnyi_klient",
+    "name": "Тысячный клиент",
+    "description": "Получить 1 000-е начисление чаевых",
+    "secret": true
+  },
+  {
+    "id": "skromnyaga",
+    "name": "Скромняга",
+    "description": "Установить дневную цель 1 грн",
+    "secret": true
+  },
+  {
+    "id": "mechtatel",
+    "name": "Мечтатель, блядь",
+    "description": "Установить дневную цель 100 000 грн",
+    "secret": true
+  },
+  {
+    "id": "statistik",
+    "name": "Статистик",
+    "description": "Открыть статистику 10 раз за день",
+    "secret": true
+  },
+  {
+    "id": "bez_plana",
+    "name": "Без плана",
+    "description": "Отработать смену без установленной дневной цели",
+    "secret": true
+  },
+  {
+    "id": "zadrot_bota",
+    "name": "Задрот бота",
+    "description": "Выполнить 30 команд за день",
+    "secret": true
+  },
+  {
+    "id": "lentyay",
+    "name": "Лентяй, блядь",
+    "description": "Не выходить на смену 7 дней после рабочих смен",
+    "secret": true
+  },
+  {
+    "id": "filosof",
+    "name": "Философ",
+    "description": "Изменить дневную цель 10 раз за день",
+    "secret": true
+  },
+  {
+    "id": "dyhanie_v_spinu",
+    "name": "Дыхание в спину",
+    "description": "Отставать от лидера недельного рейтинга менее чем на 500 грн",
+    "secret": true
+  },
+  {
+    "id": "fartovaya_grivna",
+    "name": "Фартовая гривна",
+    "description": "Заработок за день заканчивается на 777",
+    "secret": true
+  },
+  {
+    "id": "pervaya_kaplya",
+    "name": "Первая капля",
+    "description": "Получить первое начисление чаевых",
+    "secret": true
+  },
+  {
+    "id": "sotenka",
+    "name": "Сотенка",
+    "description": "Получить 100 грн чаевых одним начислением",
+    "secret": true
+  },
+  {
+    "id": "sotyi_klient",
+    "name": "Сотый клиент",
+    "description": "Получить 100-е начисление чаевых",
+    "secret": true
+  },
+  {
+    "id": "chainyi_fontan",
+    "name": "Чайный фонтан",
+    "description": "Получить 20 начислений чаевых за день",
+    "secret": true
+  },
+  {
+    "id": "dvesti_tysyach_chaya",
+    "name": "Двести тысяч чая",
+    "description": "Получить 200 000 грн чаевых с начала системы",
+    "secret": true
+  },
+  {
+    "id": "million_chaya",
+    "name": "Миллион чая",
+    "description": "Получить 1 000 000 грн чаевых с начала системы",
+    "secret": true
+  },
+  {
+    "id": "peredumal",
+    "name": "Передумал",
+    "description": "Изменить цель после её выполнения",
+    "secret": true
+  },
+  {
+    "id": "luchshe_sebya_vchera",
+    "name": "Лучше себя вчерашнего",
+    "description": "Зарабатывать больше предыдущего дня 5 дней подряд",
+    "secret": true
+  },
+  {
+    "id": "huzhe_no_stabilno",
+    "name": "Хуже, но стабильно",
+    "description": "Три дня подряд быть на 10% ниже командного среднего",
+    "secret": true
+  },
+  {
+    "id": "zolotaya_seredina",
+    "name": "Золотая середина",
+    "description": "Средний заработок за смену за месяц равен командному среднему",
+    "secret": true
+  },
+  {
+    "id": "skachok",
+    "name": "Скачок",
+    "description": "Заработать за месяц на 50% больше предыдущего месяца",
+    "secret": true
+  },
+  {
+    "id": "obval",
+    "name": "Обвал, сука",
+    "description": "Заработать за месяц на 50% меньше предыдущего месяца",
+    "secret": true
+  },
+  {
+    "id": "podem_s_kolen",
+    "name": "Подъём с колен",
+    "description": "После падения увеличить заработок следующего месяца на 100%",
+    "secret": true
+  },
+  {
+    "id": "tot_zhe_den",
+    "name": "Тот же день, что и раньше",
+    "description": "Повторить заработок дня недельной давности",
+    "secret": true
+  },
+  {
+    "id": "eho",
+    "name": "Эхо",
+    "description": "Повторить заработок того же числа предыдущего месяца",
+    "secret": true
+  },
+  {
+    "id": "luchshiy_ponedelnik",
+    "name": "Лучший понедельник",
+    "description": "Поставить рекорд заработка среди всех понедельников",
+    "secret": true
+  },
+  {
+    "id": "luchshaya_subbota",
+    "name": "Лучшая суббота",
+    "description": "Поставить рекорд заработка среди всех суббот",
+    "secret": true
+  },
+  {
+    "id": "polsotni",
+    "name": "Полсотни",
+    "description": "Получить 50 достижений",
+    "secret": true
+  },
+  {
+    "id": "sotka_dostizheniy",
+    "name": "Сотка достижений",
+    "description": "Получить 100 достижений",
+    "secret": true
+  },
+  {
+    "id": "sekretnyi_agent",
+    "name": "Секретный агент",
+    "description": "Открыть 25 скрытых достижений",
+    "secret": true
+  },
+  {
+    "id": "tri_za_den",
+    "name": "Три за день",
+    "description": "Получить 3 достижения за один день",
+    "secret": true
+  },
+  {
+    "id": "pyat_za_smenu",
+    "name": "Пять за смену",
+    "description": "Получить 5 достижений за одну смену",
+    "secret": true
+  },
+  {
+    "id": "ohotnik_za_achivkami",
+    "name": "Охотник за ачивками",
+    "description": "Получать достижение каждый день календарной недели",
+    "secret": true
+  },
+  {
+    "id": "vyebannyi_zhiznyu",
+    "name": "Выебанный жизнью",
+    "description": "Отработать 365 рабочих дней с 19.11.2026",
+    "secret": true
+  },
+  {
+    "id": "vernulsya",
+    "name": "Вернулся, блядь",
+    "description": "Вернуться на смену после перерыва 7 и более дней",
+    "secret": true
+  },
+  {
+    "id": "ebanutiiy",
+    "name": "Ебанутый",
+    "description": "Выполнить дневную цель на 300%",
+    "secret": true
+  },
+  {
+    "id": "nahuy_plan",
+    "name": "Нахуй план",
+    "description": "Выполнить месячную цель на 150%",
+    "secret": true
+  },
+  {
+    "id": "dosrochno",
+    "name": "Досрочно, сука",
+    "description": "Выполнить месячную цель до 20-го числа",
+    "secret": true
+  },
+  {
+    "id": "zaebis_tri_raza",
+    "name": "Заебись три раза",
+    "description": "Выполнить месячную цель 3 месяца подряд",
+    "secret": true
+  }
 ];
 
 function v3AchievementGetMeta(id) {
@@ -10061,6 +10495,92 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
   if(user.goalStreak>=3) await award("na_kurazhe",dayKey);
   if(user.monthGoal>0 && user.monthGoalPercent>=100) await award("rab_mesyatsa",monthKey);
   if(user.monthTotal>0 && user.monthTotal===snapshot.maxMonth) await award("papa_na_raione",monthKey);
+  // Скрытые достижения — вычисляются по накопленной истории, но только после даты старта.
+  const secretAward = async (id, period) => v3AchievementGrant(snapshot,userId,id,period || "all",newAwards);
+  const allAwards = snapshot.state.achievements || [];
+  const userAwards = allAwards.filter(x=>String(x.userId)===String(userId));
+  const secretAwards = userAwards.filter(x=>V3_SECRET_ACHIEVEMENTS.some(m=>m.id===x.achievementId));
+  const dayRows = Object.entries(user.days).sort((a,b)=>a[0].localeCompare(b[0]));
+  const workRows = dayRows.filter(([d,x])=>x.earnings>0);
+  const tipRecords = (snapshot.state.records||[]).filter(x=>x && x.type==="tea" && !x.canceledAt && String(x.userId)===String(userId) && String(x.dateKey)>=V3_ACHIEVEMENT_START_DATE);
+  const tipTotal = tipRecords.reduce((n,x)=>n+(Number(x.amount)||0),0);
+  const tipCount = tipRecords.length;
+  const todayTips = tipRecords.filter(x=>x.dateKey===dayKey);
+  if(tea===777) await secretAward("tri_topora",dayKey);
+  if(daily===1000) await secretAward("kopeika_k_kopeike",dayKey);
+  if(tea>user.today.earnings) await secretAward("huzhe_zarplaty",dayKey);
+  if(daily===2222) await secretAward("zerkalo",dayKey);
+  if(tea===666) await secretAward("dyavolskiy_den",dayKey);
+  if(daily>0 && daily%1000===777) await secretAward("fartovaya_grivna",dayKey);
+  if(tipCount>=1) await secretAward("pervaya_kaplya","all");
+  if(tipRecords.some(x=>Number(x.amount)===100)) await secretAward("sotenka","all");
+  if(tipCount>=100) await secretAward("sotyi_klient","all");
+  if(tipCount>=1000) await secretAward("tysyachnyi_klient","all");
+  if(tipTotal>=200000) await secretAward("dvesti_tysyach_chaya","all");
+  if(tipTotal>=1000000) await secretAward("million_chaya","all");
+  if(todayTips.length>=20) await secretAward("chainyi_fontan",dayKey);
+  if(user.workdayCount>=365) await secretAward("vyebannyi_zhiznyu","all");
+  if(user.todayGoal===1) await secretAward("skromnyaga","all");
+  if(user.todayGoal===100000) await secretAward("mechtatel","all");
+  if(goalPercent>=300) await secretAward("ebanutiiy",dayKey);
+  if(user.monthGoal>0 && user.monthGoalPercent>=150) await secretAward("nahuy_plan",monthKey);
+  if(user.monthGoal>0 && user.monthGoalPercent>=100 && Number(dayKey.slice(8,10))<20) await secretAward("dosrochno",monthKey);
+  if(user.monthGoal>0 && user.monthGoalPercent>=100 && user.isMonthEnd) {
+    const priorMonth = new Date(Date.UTC(todayDate.getUTCFullYear(),todayDate.getUTCMonth()-1,1));
+    const priorKey = finalEarningsMonthKey(priorMonth);
+    const priorDone = allAwards.some(x=>String(x.userId)===String(userId)&&x.achievementId==="rab_mesyatsa"&&x.periodKey===priorKey);
+    if(priorDone) await secretAward("zaebis_tri_raza",monthKey);
+  }
+  if(user.isMonthEnd && user.monthWorkdays>0) {
+    const teamWorkdays=[...snapshot.users.values()].reduce((n,u)=>n+(u.monthWorkdays||0),0);
+    const teamEarnings=[...snapshot.users.values()].reduce((n,u)=>n+(u.monthTotal||0),0);
+    const teamAvg=teamWorkdays?teamEarnings/teamWorkdays:0;
+    const personalAvg=user.monthWorkdays?user.monthTotal/user.monthWorkdays:0;
+    if(Math.round(personalAvg*100)===Math.round(teamAvg*100)) await secretAward("zolotaya_seredina",monthKey);
+    const priorMonth = new Date(Date.UTC(todayDate.getUTCFullYear(),todayDate.getUTCMonth()-1,1));
+    const priorKey=finalEarningsMonthKey(priorMonth);
+    const priorTotal=Object.values(snapshot.state.days||{}).reduce((n,day)=>{
+      const date=Object.keys(snapshot.state.days||{}).find(k=>snapshot.state.days[k]===day);
+      return n+(date&&date.startsWith(priorKey+"-")?(Number(day[userId]?.glovo)||0)+(Number(day[userId]?.bolt)||0)+(Number(day[userId]?.ipost)||Number(day[userId]?.iposr)||0)+(Number(day[userId]?.bolttr)||0)+(Number(day[userId]?.personal)||0)+(Number(day[userId]?.floors)||0)+(Number(day[userId]?.quests)||0):0);
+    },0);
+    if(priorTotal>0 && user.monthTotal>=priorTotal*1.5) await secretAward("skachok",monthKey);
+    if(priorTotal>0 && user.monthTotal<=priorTotal*0.5) await secretAward("obval",monthKey);
+    if(priorTotal>0 && user.monthTotal>=priorTotal*2) await secretAward("podem_s_kolen",monthKey);
+    if(user.monthWorkdays===user.daysInMonth) {
+      const everyWorkdayHasGoal=workRows.filter(([d])=>d.startsWith(monthKey+"-")).every(([d])=>Number(user.dailyGoalHistory?.[d]?.target)>0 && Number(user.dailyGoalHistory?.[d]?.completed)>=Number(user.dailyGoalHistory?.[d]?.target));
+      if(everyWorkdayHasGoal) await secretAward("kazhdyi_den_kak_nado",monthKey);
+    }
+  }
+  const yesterday=new Date(today+"T00:00:00Z");yesterday.setUTCDate(yesterday.getUTCDate()-1);
+  const yISO=finalEarningsISODate(yesterday);
+  if(user.days[yISO] && daily===user.days[yISO].earnings) await secretAward("bliznetsy",dayKey);
+  if(user.days[yISO] && daily>user.days[yISO].earnings) {
+    let rising=1,cur=new Date(today+"T00:00:00Z");
+    for(let j=1;j<5;j++){cur.setUTCDate(cur.getUTCDate()-1);const d=finalEarningsISODate(cur);const p=new Date(cur);p.setUTCDate(p.getUTCDate()-1);const prev=finalEarningsISODate(p);if((user.days[d]?.earnings||0)>(user.days[prev]?.earnings||0))rising++;else break;}
+    if(rising>=5) await secretAward("luchshe_sebya_vchera",dayKey);
+  }
+  if(user.workStreak>=365) await secretAward("vyebannyi_zhiznyu","all");
+  if(user.workDates.length>=1) {
+    const lastWork=user.workDates[user.workDates.length-1];
+    const gap=Math.round((Date.parse(dayKey+"T00:00:00Z")-Date.parse(lastWork+"T00:00:00Z"))/86400000);
+    if(gap>=7 && daily>0) await secretAward("vernulsya",dayKey);
+  }
+  if(user.todayGoal>0 && daily>=user.todayGoal && Number(dayKey.slice(8,10))<18) await secretAward("utrenniy_yobar",dayKey);
+  if(user.todayGoal>0 && daily>=user.todayGoal && !user.dailyGoalHistory?.[dayKey]?.target) await secretAward("bez_plana",dayKey);
+  if(user.weekTotal>0) {
+    const sorted=[...snapshot.users.values()].map(x=>({id:x.userId,total:x.weekTotal||0})).sort((a,b)=>b.total-a.total);
+    if(sorted[0]?.id!==String(userId) && sorted[0]?.total-(user.weekTotal||0)<500 && sorted[0]?.total>(user.weekTotal||0)) await secretAward("dyhanie_v_spinu",weekKey);
+  }
+  if(user.monthGoal>0 && user.monthGoalPercent>=100 && user.isMonthEnd) {
+    const prev=new Date(Date.UTC(todayDate.getUTCFullYear(),todayDate.getUTCMonth()-1,1));
+    const prevKey=finalEarningsMonthKey(prev);
+    const prevDone=userAwards.some(x=>x.achievementId==="rab_mesyatsa"&&x.periodKey===prevKey);
+    if(prevDone) await secretAward("zaebis_tri_raza",monthKey);
+  }
+  if(userAwards.length>=49) await secretAward("polsotni","all");
+  if(userAwards.length>=99) await secretAward("sotka_dostizheniy","all");
+  if(secretAwards.length>=24) await secretAward("sekretnyi_agent","all");
+
 }
 
 async function v3CheckAchievements(userId) {
