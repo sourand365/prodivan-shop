@@ -9555,6 +9555,7 @@ async function v3AddRecord(data) {
   if (state.records.length > 15000) state.records = state.records.slice(-15000);
   if (state.audit.length > 15000) state.audit = state.audit.slice(-15000);
   await finalEarningsSave(state);
+  await v3CheckAchievements(record.userId);
 }
 
 const v3OriginalEarningsAdd = finalEarningsAdd;
