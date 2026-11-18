@@ -10639,7 +10639,7 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
     const twoMonthsKey = finalEarningsMonthKey(twoMonthsAgo);
     const monthEarnings = key => Object.entries(user.days).reduce((sum,[date,row])=>sum+(date.startsWith(key+"-")?(Number(row.earnings)||0):0),0);
     const priorTotal=monthEarnings(priorKey),twoMonthsTotal=monthEarnings(twoMonthsKey);
-    if(priorKey+"-01">=V3_ACHIEVEMENT_START_DATE && priorTotal>0 && user.monthTotal>=priorTotal*1.5) await secretAward("skachok",monthKey);
+    if(priorKey>=V3_ACHIEVEMENT_START_DATE.slice(0,7) && priorTotal>0 && user.monthTotal>=priorTotal*1.5) await secretAward("skachok",monthKey);
     if(priorKey+"-01">=V3_ACHIEVEMENT_START_DATE && priorTotal>0 && user.monthTotal<=priorTotal*0.5) await secretAward("obval",monthKey);
     if(priorKey+"-01">=V3_ACHIEVEMENT_START_DATE && twoMonthsTotal>0 && priorTotal<=twoMonthsTotal*0.5 && user.monthTotal>=priorTotal*2) await secretAward("podem_s_kolen",monthKey);
     const everyWorkdayHasGoal=workRows.filter(([d])=>d.startsWith(monthKey+"-")).every(([d,row])=>Number(user.dailyGoalHistory?.[d]?.target)>0 && row.total>=Number(user.dailyGoalHistory[d].target));
