@@ -1605,7 +1605,7 @@ bot.hears(
       await saveTipsState(state);
       await v3AddRecord({
         userId, name, type: "tea", amount,
-        dateKey: finalEarningsISODate(new Date(new Date().toLocaleString("en-US", { timeZone: TIMEZONE }))),
+        dateKey: v3DateISO(finalEarningsToday()),
         createdBy: userId
       });
 
@@ -9677,10 +9677,13 @@ bot.hears(/^отмена\s*\((.+?)\)(?:\s+(\d+))?$/i, async ctx => {
     day[userId][record.type] = Math.max(0, (Number(day[userId][record.type]) || 0) - record.amount);
     await finalEarningsSave(earnings);
   }
-  record.canceledAt = new Date().toISOString();
-  record.canceledBy = String(ctx.from.id);
-  state.audit.push({ at: record.canceledAt, action:"cancel", recordId:record.id, userId:String(userId), name, type:record.type, amount:record.amount, by:String(ctx.from.id) });
-  await finalEarningsSave(state);
+  const freshState = await v3LoadEarningsState();
+  const freshRecord = (freshState.records || []).find(r => r.id === record.id);
+  if (!freshRecord || freshRecord.canceledAt) return ctx.reply("❌ Эта запись уже отменена.");
+  freshRecord.canceledAt = new Date().toISOString();
+  freshRecord.canceledBy = String(ctx.from.id);
+  freshState.audit.push({ at: freshRecord.canceledAt, action:"cancel", recordId:freshRecord.id, userId:String(userId), name, type:freshRecord.type, amount:freshRecord.amount, by:String(ctx.from.id) });
+  await finalEarningsSave(freshState);
   await ctx.reply("✅ Запись отменена\n\n👤 " + name + "\n№" + (index+1) + " — " + record.amount + " грн");
 });
 
