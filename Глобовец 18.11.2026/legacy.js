@@ -9526,6 +9526,8 @@ bot.on("text", async (ctx, next) => {
 // быстрый ввод, история и адресная отмена записей.
 // ============================================================
 
+const V3_ACHIEVEMENT_START_DATE = "2026-11-19";
+
 async function v3LoadEarningsState() {
   const state = await finalEarningsLoad();
   if (!state.goals) state.goals = {};
@@ -9535,6 +9537,11 @@ async function v3LoadEarningsState() {
   if (!Array.isArray(state.goalReportChatIds)) state.goalReportChatIds = [];
   if (!state.v3Sent) state.v3Sent = {};
   if (!Array.isArray(state.achievements)) state.achievements = [];
+  if (state.achievementTrackingStart !== V3_ACHIEVEMENT_START_DATE) {
+    state.achievements = [];
+    state.achievementTrackingStart = V3_ACHIEVEMENT_START_DATE;
+    await finalEarningsSave(state);
+  }
   if (!state.goalHistory) state.goalHistory = {};
   if (!state.goalHistory.day) state.goalHistory.day = {};
   if (state.achievementsEnabled === undefined) state.achievementsEnabled = true;
@@ -9871,7 +9878,7 @@ const V3_ACHIEVEMENTS = [
   {id:"korol_smeny",name:"Король смены",description:"10 000 грн заработка за день",repeat:"day"},
   {id:"zhirny_kush",name:"Жирный куш",description:"5 000 грн заработка за день",repeat:"day"},
   {id:"denezhny_dozhd",name:"Денежный дождь",description:"50 000 грн заработка за неделю",repeat:"week"},
-  {id:"denezhny_meshok",name:"Денежный мешок",description:"120 000 грн заработка за месяц",repeat:"month"},
+  {id:"denezhny_meshok",name:"Денежный мешок",description:"150 000 грн заработка за месяц",repeat:"month"},
   {id:"pervyi_vyhod",name:"Первый выход",description:"Первая рабочая смена",repeat:"once"},
   {id:"trudyaga",name:"Трудяга",description:"7 рабочих дней подряд",repeat:"once"},
   {id:"bez_otdyha",name:"Без отдыха",description:"10 рабочих дней подряд",repeat:"once"},
@@ -9924,6 +9931,7 @@ async function v3AchievementBuildSnapshot() {
     const parsed = finalEarningsParseDate(dateKey);
     if (!parsed) continue;
     const iso = finalEarningsISODate(parsed);
+    if (iso < V3_ACHIEVEMENT_START_DATE) continue;
     for (const [id,item] of Object.entries(day || {})) {
       if (!item) continue;
       const user = ensureUser(id,item.name);
@@ -9938,6 +9946,7 @@ async function v3AchievementBuildSnapshot() {
     const parsed = finalEarningsParseDate(day.date);
     if (!parsed) continue;
     const iso = finalEarningsISODate(parsed);
+    if (iso < V3_ACHIEVEMENT_START_DATE) continue;
     for (const [id,item] of Object.entries(day.tips || {})) {
       if (!item) continue;
       const user = ensureUser(id,item.name);
@@ -9946,7 +9955,7 @@ async function v3AchievementBuildSnapshot() {
   }
   for (const [id,user] of Object.entries(state.users || {})) ensureUser(id,user?.name);
   for (const record of state.records || []) {
-    if (!record || record.type !== "tea" || record.canceledAt) continue;
+    if (!record || record.type !== "tea" || record.canceledAt || String(record.dateKey || "") < V3_ACHIEVEMENT_START_DATE) continue;
     const user = ensureUser(record.userId,record.name);
     user.maxSingleTip = Math.max(user.maxSingleTip,Number(record.amount)||0);
   }
@@ -9971,7 +9980,7 @@ async function v3AchievementBuildSnapshot() {
     user.monthTotal=monthTotal;
     user.monthTea=monthTea;
     user.today=user.days[today] || {earnings:0,tea:0,total:0};
-    user.workDates=Object.keys(user.days).filter(date=>user.days[date].total>0).sort();
+    user.workDates=Object.keys(user.days).filter(date=>user.days[date].earnings>0).sort();
     user.workdayCount=user.workDates.length;
     let streak=0;
     const workSet=new Set(user.workDates);
@@ -10029,7 +10038,7 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
   if(daily>=10000) await award("korol_smeny",dayKey);
   if(daily>=5000) await award("zhirny_kush",dayKey);
   if(user.weekTotal>=50000) await award("denezhny_dozhd",weekKey);
-  if(user.monthTotal>=120000) await award("denezhny_meshok",monthKey);
+  if(user.monthTotal>=150000) await award("denezhny_meshok",monthKey);
   if(user.workdayCount>=1) await award("pervyi_vyhod","all");
   if(user.workStreak>=7) await award("trudyaga","all");
   if(user.workStreak>=10) await award("bez_otdyha","all");
@@ -10039,7 +10048,7 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
   if(user.maxSingleTip>=500) await award("pervye_500","all");
   if(tea>=1000) await award("kasar",dayKey);
   if(tea>=2000) await award("chainik",dayKey);
-  if(tea>=2000) await award("shlyuha_klienta",dayKey);
+  if(user.maxSingleTip>=2000) await award("shlyuha_klienta","all");
   if(tea>=5000) await award("pidaras",dayKey);
   if(user.maxSingleTip>=1000) await award("otsosal_klientu","all");
   if(user.monthTea>=30000) await award("chainaya_imperiya",monthKey);
