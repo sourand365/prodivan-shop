@@ -8932,6 +8932,16 @@ bot.command(
         state
       );
 
+      const historyState = await v3LoadEarningsState();
+      const resetDateKey = v3DateISO(dateKey);
+      for (const record of historyState.records || []) {
+        if (record.userId === String(userId) && record.dateKey === resetDateKey && !record.canceledAt && record.type !== "tea") {
+          record.canceledAt = new Date().toISOString();
+          record.canceledBy = String(ctx.from.id);
+          historyState.audit.push({ at: record.canceledAt, action: "reset", recordId: record.id, userId: String(userId), name, type: record.type, amount: record.amount, by: String(ctx.from.id) });
+        }
+      }
+      await finalEarningsSave(historyState);
 
       await ctx.reply(
 
