@@ -4,18 +4,18 @@ if (-not $root) { $root = (Get-Location).Path }
 $root = (Resolve-Path $root).Path
 
 Write-Host ''
-Write-Host '=== GLOBOVETS 3.1.0 UPDATE ===' -ForegroundColor Cyan
+Write-Host '=== GLOBOVETS 3.1.1 UPDATE ===' -ForegroundColor Cyan
 Read-Host 'Stop the bot with Ctrl+C, then press Enter'
 
 if (-not (Test-Path (Join-Path $root 'package.json')) -or -not (Test-Path (Join-Path $root 'index.js'))) {
-  $entered = Read-Host 'Enter the full path to the Globovets 3.1.0 project folder'
+  $entered = Read-Host 'Enter the full path to the Globovets 3.1.1 project folder'
   if (-not $entered -or -not (Test-Path (Join-Path $entered 'package.json'))) {
     throw 'Project folder not found.'
   }
   $root = (Resolve-Path $entered).Path
 }
 
-$required = @('index.js', 'legacy.js', 'package.json')
+$required = @('index.js', 'legacy.js', 'package.json', 'package-lock.json')
 foreach ($file in $required) {
   if (-not (Test-Path (Join-Path $root $file))) {
     throw "Required project file is missing: $file"
@@ -44,7 +44,7 @@ New-Item -ItemType Directory -Path $temp -Force | Out-Null
 $base = 'https://raw.githubusercontent.com/sourand365/prodivan-shop/main/%D0%93%D0%BB%D0%BE%D0%B1%D0%BE%D0%B2%D0%B5%D1%86%2018.11.2026/'
 
 try {
-  Write-Host 'Downloading Globovets 3.1.0 files...' -ForegroundColor Yellow
+  Write-Host 'Downloading Globovets 3.1.1 files...' -ForegroundColor Yellow
   foreach ($file in $required) {
     $tempFile = Join-Path $temp $file
     Invoke-WebRequest -Uri ($base + $file) -OutFile $tempFile -UseBasicParsing
@@ -72,7 +72,7 @@ try {
   Pop-Location
 
   Write-Host ''
-  Write-Host 'GLOBOVETS 3.1.0 UPDATE COMPLETED!' -ForegroundColor Green
+  Write-Host 'GLOBOVETS 3.1.1 UPDATE COMPLETED!' -ForegroundColor Green
   Write-Host ('Backup: ' + $backupRoot)
   Write-Host 'The .env file and data\globovets.sqlite database were not overwritten.'
   Write-Host 'Restart the bot with: npm start'
