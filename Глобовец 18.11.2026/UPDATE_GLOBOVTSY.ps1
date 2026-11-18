@@ -10,7 +10,7 @@ if (-not (Test-Path (Join-Path $root 'package.json')) -or -not (Test-Path (Join-
   if (-not $entered -or -not (Test-Path (Join-Path $entered 'package.json'))) { throw 'Папка проекта не найдена.' }
   $root = (Resolve-Path $entered).Path
 }
-$required = @('index.js','legacy.js')
+$required = @('index.js','legacy.js','package.json')
 $coreRequired = @('index.js','legacy.js','package.json')
 foreach ($file in $coreRequired) { if (-not (Test-Path (Join-Path $root $file))) { throw "В папке проекта отсутствует $file" } }
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -24,7 +24,7 @@ if ($LASTEXITCODE -ge 8) { throw 'Не удалось создать резер�
 $hadLock = Test-Path (Join-Path $root 'package-lock.json')
 $temp = Join-Path $env:TEMP ("globovets-update-" + $stamp)
 New-Item -ItemType Directory -Path $temp -Force | Out-Null
-$base = 'https://raw.githubusercontent.com/sourand365/prodivan-shop/main/'
+$base = 'https://raw.githubusercontent.com/sourand365/prodivan-shop/update/globovets-achievements-2026-11-19/%D0%93%D0%BB%D0%BE%D0%B1%D0%BE%D0%B2%D0%B5%D1%86%2018.11.2026/'
 try {
   Write-Host 'Скачиваю файлы обновления из GitHub...' -ForegroundColor Yellow
   foreach ($file in $required) {

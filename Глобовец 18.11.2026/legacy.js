@@ -14,6 +14,30 @@ bot.use(async (ctx, next) => {
   return next();
 });
 
+// Счётчик команд и открытий статистики для секретных достижений.
+bot.use(async (ctx,next)=>{
+  try{
+    const raw=String(ctx.message?.text||"").trim();
+    if(raw && ctx.from?.id){
+      const recognized=/^(?:\/|мой день$|моя неделя$|мой месяц(?:\s|$)|календарь(?:\s|$)|топ(?:\s|$)|статистика$|цель\s+\d+|сравнить\s|достижения$|мои достижения$|топ достижений$|запись\s|отмена\s)/i.test(raw);
+      if(recognized){
+        const state=await v3LoadEarningsState();
+        const uid=String(ctx.from.id),day=v3DateISO(finalEarningsToday());
+        state.achievementActivity=state.achievementActivity||{};
+        state.achievementActivity[uid]=state.achievementActivity[uid]||{};
+        state.achievementActivity[uid][day]=state.achievementActivity[uid][day]||{commands:0,statsOpens:0,goalChanges:0};
+        state.achievementActivity[uid][day].commands=(Number(state.achievementActivity[uid][day].commands)||0)+1;
+        if(/^(?:мой день$|моя неделя$|мой месяц(?:\s|$)|календарь(?:\s|$)|топ(?:\s|$)|статистика$)/i.test(raw)){
+          state.achievementActivity[uid][day].statsOpens=(Number(state.achievementActivity[uid][day].statsOpens)||0)+1;
+        }
+        await finalEarningsSave(state);
+      }
+    }
+  }catch(error){console.error("Achievement activity counter:",error.message);}
+  return next();
+});
+
+
 // ============================================================
 // TELEGRAM БОТ ДЛЯ КУРЬЕРОВ — NxCreate
 // ПОЛНАЯ ВЕРСИЯ
@@ -9526,6 +9550,8 @@ bot.on("text", async (ctx, next) => {
 // быстрый ввод, история и адресная отмена записей.
 // ============================================================
 
+const V3_ACHIEVEMENT_START_DATE = "2026-11-19";
+
 async function v3LoadEarningsState() {
   const state = await finalEarningsLoad();
   if (!state.goals) state.goals = {};
@@ -9535,6 +9561,11 @@ async function v3LoadEarningsState() {
   if (!Array.isArray(state.goalReportChatIds)) state.goalReportChatIds = [];
   if (!state.v3Sent) state.v3Sent = {};
   if (!Array.isArray(state.achievements)) state.achievements = [];
+  if (state.achievementTrackingStart !== V3_ACHIEVEMENT_START_DATE) {
+    state.achievements = [];
+    state.achievementTrackingStart = V3_ACHIEVEMENT_START_DATE;
+    await finalEarningsSave(state);
+  }
   if (!state.goalHistory) state.goalHistory = {};
   if (!state.goalHistory.day) state.goalHistory.day = {};
   if (state.achievementsEnabled === undefined) state.achievementsEnabled = true;
@@ -9619,9 +9650,21 @@ bot.hears(/^цель\s+(\d+)$/i, async ctx => {
   const dateKey = v3DateISO(finalEarningsToday());
   state.users[userId] = state.users[userId] || {};
   state.users[userId].name = getTelegramDisplayName(ctx);
-  state.goals.day[userId] = { dateKey, target, setAt: new Date().toISOString() };
+  const oldGoal=Number(state.goals.day[userId]?.dateKey===dateKey?state.goals.day[userId]?.target:0)||0;
+  const currentReport=await finalEarningsReport(userId,dateKey);
+  const changedAfterComplete=oldGoal>0 && currentReport.total>=oldGoal;
+  const setAt=new Date().toISOString();
+  state.goals.day[userId] = { dateKey, target, setAt };
   state.goalHistory.day[userId] = state.goalHistory.day[userId] || {};
-  state.goalHistory.day[userId][dateKey] = { target, setAt: new Date().toISOString() };
+  const previousGoal=state.goalHistory.day[userId][dateKey]||{};
+  state.goalHistory.day[userId][dateKey] = { target, setAt, changedAfterComplete:!!(previousGoal.changedAfterComplete||changedAfterComplete) };
+  state.achievementActivity=state.achievementActivity||{};
+  state.achievementActivity[userId]=state.achievementActivity[userId]||{};
+  state.achievementActivity[userId][dateKey]=state.achievementActivity[userId][dateKey]||{commands:0,statsOpens:0,goalChanges:0,goalTargets:[]};
+  const activity=state.achievementActivity[userId][dateKey];
+  activity.goalChanges=(Number(activity.goalChanges)||0)+1;
+  activity.goalTargets=Array.isArray(activity.goalTargets)?activity.goalTargets:[];
+  activity.goalTargets.push(target);
   if (ctx.chat?.id && !state.goalReportChatIds.includes(ctx.chat.id)) state.goalReportChatIds.push(ctx.chat.id);
   state.goalReportChatId = ctx.chat?.id || state.goalReportChatId || null;
   await finalEarningsSave(state);
@@ -9758,20 +9801,21 @@ async function v3Calendar(ctx, monthInput) {
   let total=0,workdays=0;
   for(let day=1;day<=daysInMonth;day++){
     const key=year+"-"+String(month).padStart(2,"0")+"-"+String(day).padStart(2,"0");
-    const report=await finalEarningsReport(userId,key),amount=Math.max(0,Math.round(Number(report.total)||0));
+    const report=await finalEarningsReport(userId,key),amount=Math.max(0,Math.round((Number(report.total)||0)-(Number(report.tea)||0)));
     daily.push(amount);if(amount>0){total+=amount;workdays++;}
   }
+  const average=workdays?total/workdays:0;
   const width=840,height=960,pixels=Buffer.alloc(width*height*4);
-  const C={bg:[15,23,42,255],empty:[38,50,68,255],earned:[20,91,70,255],panel:[30,41,59,255],accent:[250,204,21,255],white:[248,250,252,255],muted:[148,163,184,255],line:[71,85,105,255]};
+  const C={bg:[15,23,42,255],empty:[38,50,68,255],above:[20,120,75,255],near:[180,135,20,255],below:[150,45,55,255],panel:[30,41,59,255],accent:[250,204,21,255],white:[248,250,252,255],muted:[148,163,184,255],line:[71,85,105,255]};
   function rect(x,y,w,h,c){for(let yy=Math.max(0,y);yy<Math.min(height,y+h);yy++)for(let xx=Math.max(0,x);xx<Math.min(width,x+w);xx++){const p=(yy*width+xx)*4;pixels[p]=c[0];pixels[p+1]=c[1];pixels[p+2]=c[2];pixels[p+3]=c[3];}}
   const F={"0":[14,17,19,21,25,17,14],"1":[4,12,4,4,4,4,14],"2":[14,17,1,2,4,8,31],"3":[30,1,1,14,1,17,14],"4":[2,6,10,18,31,2,2],"5":[31,16,16,30,1,17,14],"6":[6,8,16,30,17,17,14],"7":[31,1,2,4,8,8,8],"8":[14,17,17,14,17,17,14],"9":[14,17,17,15,1,2,12],"A":[14,17,17,31,17,17,17],"B":[30,17,17,30,17,17,30],"C":[14,17,16,16,16,17,14],"D":[28,18,17,17,17,18,28],"E":[31,16,16,30,16,16,31],"F":[31,16,16,30,16,16,16],"G":[14,17,16,23,17,17,15],"H":[17,17,17,31,17,17,17],"I":[14,4,4,4,4,4,14],"J":[7,2,2,2,2,18,12],"K":[17,18,20,24,20,18,17],"L":[16,16,16,16,16,16,31],"M":[17,27,21,21,17,17,17],"N":[17,25,21,19,17,17,17],"O":[14,17,17,17,17,17,14],"P":[30,17,17,30,16,16,16],"Q":[14,17,17,17,21,18,13],"R":[30,17,17,30,20,18,17],"S":[15,16,16,14,1,1,30],"T":[31,4,4,4,4,4,4],"U":[17,17,17,17,17,17,14],"V":[17,17,17,17,17,10,4],"W":[17,17,17,21,21,21,10],"X":[17,17,10,4,10,17,17],"Y":[17,17,10,4,4,4,4],"Z":[31,1,2,4,8,16,31],".":[0,0,0,0,0,12,12],":":[0,12,12,0,12,12,0],"-":[0,0,0,31,0,0,0],"/":[1,2,2,4,8,8,16]," ":[0,0,0,0,0,0,0]};
   function txt(value,x,y,scale,color){let cx=x;for(const ch of String(value).toUpperCase()){const g=F[ch]||F[" "];for(let yy=0;yy<7;yy++)for(let xx=0;xx<5;xx++)if(g[yy]&(1<<(4-xx)))rect(cx+xx*scale,y+yy*scale,scale,scale,color);cx+=6*scale;}return cx-x;}
-  rect(0,0,width,height,C.bg);rect(0,0,width,10,C.accent);txt("GLOBOVETS / EARNINGS",42,38,4,C.white);txt(year+"."+String(month).padStart(2,"0"),42,82,4,C.accent);txt("GREEN = WORK DAY",540,88,2,C.muted);
+  rect(0,0,width,height,C.bg);rect(0,0,width,10,C.accent);txt("GLOBOVETS / EARNINGS",42,38,4,C.white);txt(year+"."+String(month).padStart(2,"0"),42,82,4,C.accent);rect(500,42,12,12,C.above);txt("ABOVE AVG",520,43,1,C.muted);rect(625,42,12,12,C.near);txt("AVG +/- 350",645,43,1,C.muted);rect(500,62,12,12,C.below);txt("BELOW AVG",520,63,1,C.muted);
   const labels=["MON","TUE","WED","THU","FRI","SAT","SUN"],left=24,top=190,gap=8,cw=108,ch=100;
   for(let col=0;col<7;col++)txt(labels[col],left+col*(cw+gap)+24,160,2,C.muted);
   const offset=(new Date(Date.UTC(year,month-1,1)).getUTCDay()+6)%7;
-  for(let day=1;day<=daysInMonth;day++){const slot=offset+day-1,row=Math.floor(slot/7),col=slot%7,x=left+col*(cw+gap),y=top+row*(ch+gap),amount=daily[day-1];rect(x,y,cw,ch,amount>0?C.earned:C.empty);rect(x,y,cw,4,amount>0?C.accent:C.line);txt(String(day).padStart(2,"0"),x+10,y+13,3,C.white);if(amount>0){txt(String(amount),x+10,y+59,2,C.white);rect(x+cw-17,y+13,7,7,C.accent);}else txt("-",x+12,y+61,2,C.muted);}
-  const fy=top+6*(ch+gap)+8;rect(24,fy,792,104,C.panel);txt("TOTAL "+total+" UAH",44,fy+18,3,C.accent);txt("WORK DAYS "+workdays,44,fy+62,2,C.white);txt("AVG "+(workdays?Math.round(total/workdays):0)+" UAH",450,fy+62,2,C.white);
+  for(let day=1;day<=daysInMonth;day++){const slot=offset+day-1,row=Math.floor(slot/7),col=slot%7,x=left+col*(cw+gap),y=top+row*(ch+gap),amount=daily[day-1],dayColor=amount<=0?C.empty:amount>average+350?C.above:amount<average-350?C.below:C.near;rect(x,y,cw,ch,dayColor);rect(x,y, cw,4,amount>0?dayColor:C.line);txt(String(day).padStart(2,"0"),x+10,y+13,3,C.white);if(amount>0){txt(String(amount),x+10,y+59,2,C.white);rect(x+cw-17,y+13,7,7,C.accent);}else txt("-",x+12,y+61,2,C.muted);}
+  const fy=top+6*(ch+gap)+8;rect(24,fy,792,104,C.panel);txt("TOTAL "+total+" UAH",44,fy+18,3,C.accent);txt("WORK DAYS "+workdays,44,fy+62,2,C.white);txt("AVG "+Math.round(average)+" UAH",450,fy+62,2,C.white);
   function crc32(buf){let v=0xffffffff;for(const z of buf){v^=z;for(let k=0;k<8;k++)v=(v>>>1)^((v&1)?0xedb88320:0);}return(v^0xffffffff)>>>0;}
   function chunk(type,data){const t=Buffer.from(type),l=Buffer.alloc(4),cr=Buffer.alloc(4);l.writeUInt32BE(data.length);cr.writeUInt32BE(crc32(Buffer.concat([t,data])));return Buffer.concat([l,t,data,cr]);}
   const raw=Buffer.alloc((width*4+1)*height);for(let y=0;y<height;y++){const o=y*(width*4+1);raw[o]=0;pixels.copy(raw,o+1,y*width*4,(y+1)*width*4);}
@@ -9866,35 +9910,469 @@ async function v3AverageForPeriod(userId, period, key) {
 // ============================================================
 
 const V3_ACHIEVEMENTS = [
-  {id:"dvushka",name:"Двушка",description:"2 000 грн заработка за день",repeat:"day"},
-  {id:"korol_smeny",name:"Король смены",description:"10 000 грн заработка за день",repeat:"day"},
-  {id:"zhirny_kush",name:"Жирный куш",description:"5 000 грн заработка за день",repeat:"day"},
-  {id:"denezhny_dozhd",name:"Денежный дождь",description:"50 000 грн заработка за неделю",repeat:"week"},
-  {id:"denezhny_meshok",name:"Денежный мешок",description:"120 000 грн заработка за месяц",repeat:"month"},
-  {id:"pervyi_vyhod",name:"Первый выход",description:"Первая рабочая смена",repeat:"once"},
-  {id:"trudyaga",name:"Трудяга",description:"7 рабочих дней подряд",repeat:"once"},
-  {id:"bez_otdyha",name:"Без отдыха",description:"10 рабочих дней подряд",repeat:"once"},
-  {id:"zhelezny_chelovek",name:"Железный человек",description:"20 рабочих дней подряд",repeat:"once"},
-  {id:"mashina",name:"Машина",description:"Отработать каждый календарный день месяца",repeat:"month"},
-  {id:"veteran",name:"Ветеран",description:"100 рабочих дней за всё время",repeat:"once"},
-  {id:"pervye_500",name:"Первые 500",description:"Получить 500 грн чаевых одним начислением",repeat:"once"},
-  {id:"kasar",name:"Касарь",description:"1 000 грн чаевых за один день",repeat:"day"},
-  {id:"chainik",name:"Чайник",description:"2 000 грн чаевых за один день",repeat:"day"},
-  {id:"shlyuha_klienta",name:"Шлюшка клиента",description:"2 000 грн чаевых за один день",repeat:"day"},
-  {id:"pidaras",name:"Пидарас",description:"5 000 грн чаевых за один день",repeat:"day"},
-  {id:"otsosal_klientu",name:"Отсосал клиенту",description:"Получить 1 000 грн чаевых одним начислением",repeat:"once"},
-  {id:"chainaya_imperiya",name:"Чайная империя",description:"30 000 грн чаевых за месяц",repeat:"month"},
-  {id:"rab_100",name:"Ебать ты раб",description:"Выполнить дневную цель на 100%",repeat:"day"},
-  {id:"perevypolnil_plan",name:"Перевыполнил план",description:"Выполнить дневную цель на 150%",repeat:"day"},
-  {id:"bez_ostanovki",name:"Без остановки",description:"Выполнить дневную цель 7 дней подряд",repeat:"day"},
-  {id:"rab_mesyatsa",name:"Раб месяца",description:"Выполнить месячную цель на 100%",repeat:"month"},
-  {id:"na_kurazhe",name:"На кураже",description:"Выполнить дневную цель 3 дня подряд",repeat:"day"},
-  {id:"absolyutny_rab",name:"Абсолютный раб",description:"Выполнить дневную цель на 200%",repeat:"day"},
-  {id:"papa_na_raione",name:"Папа на районе",description:"Занять первое место по заработку за месяц; при равенстве получают все лидеры",repeat:"month"}
+  {
+    "id": "dvushka",
+    "name": "Двушка",
+    "description": "2 000 грн заработка за день",
+    "repeat": "day"
+  },
+  {
+    "id": "korol_smeny",
+    "name": "Король смены",
+    "description": "10 000 грн заработка за день",
+    "repeat": "day"
+  },
+  {
+    "id": "zhirny_kush",
+    "name": "Жирный куш",
+    "description": "5 000 грн заработка за день",
+    "repeat": "day"
+  },
+  {
+    "id": "denezhny_dozhd",
+    "name": "Денежный дождь",
+    "description": "50 000 грн заработка за неделю",
+    "repeat": "week"
+  },
+  {
+    "id": "denezhny_meshok",
+    "name": "Денежный мешок",
+    "description": "150 000 грн заработка за месяц",
+    "repeat": "month"
+  },
+  {
+    "id": "pervyi_vyhod",
+    "name": "Первый выход",
+    "description": "Первая рабочая смена",
+    "repeat": "once"
+  },
+  {
+    "id": "trudyaga",
+    "name": "Трудяга",
+    "description": "7 рабочих дней подряд",
+    "repeat": "once"
+  },
+  {
+    "id": "bez_otdyha",
+    "name": "Без отдыха",
+    "description": "10 рабочих дней подряд",
+    "repeat": "once"
+  },
+  {
+    "id": "zhelezny_chelovek",
+    "name": "Железный человек",
+    "description": "20 рабочих дней подряд",
+    "repeat": "once"
+  },
+  {
+    "id": "mashina",
+    "name": "Машина",
+    "description": "Отработать каждый календарный день месяца",
+    "repeat": "month"
+  },
+  {
+    "id": "veteran",
+    "name": "Ветеран",
+    "description": "100 рабочих дней с 19.11.2026",
+    "repeat": "once"
+  },
+  {
+    "id": "pervye_500",
+    "name": "Первые 500",
+    "description": "Получить 500 грн чаевых одним начислением",
+    "repeat": "once"
+  },
+  {
+    "id": "kasar",
+    "name": "Касарь",
+    "description": "1 000 грн чаевых за один день",
+    "repeat": "day"
+  },
+  {
+    "id": "chainik",
+    "name": "Чайник",
+    "description": "2 000 грн чаевых за один день",
+    "repeat": "day"
+  },
+  {
+    "id": "shlyuha_klienta",
+    "name": "Шлюшка клиента",
+    "description": "2 000 грн чаевых одним начислением",
+    "repeat": "once"
+  },
+  {
+    "id": "pidaras",
+    "name": "Пидарас",
+    "description": "5 000 грн чаевых за один день",
+    "repeat": "day"
+  },
+  {
+    "id": "otsosal_klientu",
+    "name": "Отсосал клиенту",
+    "description": "Получить 1 000 грн чаевых одним начислением",
+    "repeat": "once"
+  },
+  {
+    "id": "chainaya_imperiya",
+    "name": "Чайная империя",
+    "description": "30 000 грн чаевых за месяц",
+    "repeat": "month"
+  },
+  {
+    "id": "rab_100",
+    "name": "Ебать ты раб",
+    "description": "Выполнить дневную цель на 100%",
+    "repeat": "day"
+  },
+  {
+    "id": "perevypolnil_plan",
+    "name": "Перевыполнил план",
+    "description": "Выполнить дневную цель на 150%",
+    "repeat": "day"
+  },
+  {
+    "id": "bez_ostanovki",
+    "name": "Без остановки",
+    "description": "Выполнить дневную цель 7 дней подряд",
+    "repeat": "day"
+  },
+  {
+    "id": "rab_mesyatsa",
+    "name": "Раб месяца",
+    "description": "Выполнить месячную цель на 100%",
+    "repeat": "month"
+  },
+  {
+    "id": "na_kurazhe",
+    "name": "На кураже",
+    "description": "Выполнить дневную цель 3 дня подряд",
+    "repeat": "day"
+  },
+  {
+    "id": "absolyutny_rab",
+    "name": "Абсолютный раб",
+    "description": "Выполнить дневную цель на 200%",
+    "repeat": "day"
+  },
+  {
+    "id": "papa_na_raione",
+    "name": "Папа на районе",
+    "description": "Первое место по заработку за месяц; при равенстве награждаются все лидеры",
+    "repeat": "month"
+  }
+];
+
+const V3_SECRET_ACHIEVEMENTS = [
+  {
+    "id": "tri_topora",
+    "name": "Три топора",
+    "description": "Ровно 777 грн чаевых за день",
+    "secret": true
+  },
+  {
+    "id": "kopeika_k_kopeike",
+    "name": "Копейка к копейке",
+    "description": "Ровно 1 000 грн заработка за день",
+    "secret": true
+  },
+  {
+    "id": "huzhe_zarplaty",
+    "name": "Хуже зарплаты",
+    "description": "Чаевых за день больше, чем заработка",
+    "secret": true
+  },
+  {
+    "id": "kazhdyi_den_kak_nado",
+    "name": "Каждый день как надо",
+    "description": "Выполнять дневную цель в каждый рабочий день месяца",
+    "secret": true
+  },
+  {
+    "id": "novogodniy_yobar",
+    "name": "Новогодний ёбарь",
+    "description": "Отработать 31 декабря или 1 января",
+    "secret": true
+  },
+  {
+    "id": "pyatnitsa_13",
+    "name": "Пятница 13-е",
+    "description": "Отработать в пятницу 13-го",
+    "secret": true
+  },
+  {
+    "id": "zerkalo",
+    "name": "Зеркало, блядь",
+    "description": "Ровно 2 222 грн заработка за день",
+    "secret": true
+  },
+  {
+    "id": "dyavolskiy_den",
+    "name": "Дьявольский день",
+    "description": "Ровно 666 грн чаевых за день",
+    "secret": true
+  },
+  {
+    "id": "utrenniy_yobar",
+    "name": "Утренний ёбарь",
+    "description": "Выполнить дневную цель до 18:00",
+    "secret": true
+  },
+  {
+    "id": "otryv_suka",
+    "name": "Отрыв, сука",
+    "description": "Заработать вдвое больше второго места за день",
+    "secret": true
+  },
+  {
+    "id": "vechnyi_top",
+    "name": "Вечный топ",
+    "description": "Занимать первое место 10 дней подряд",
+    "secret": true
+  },
+  {
+    "id": "bliznetsy",
+    "name": "Близнецы",
+    "description": "Два дня подряд заработать одинаковую сумму",
+    "secret": true
+  },
+  {
+    "id": "tysyachnyi_klient",
+    "name": "Тысячный клиент",
+    "description": "Получить 1 000-е начисление чаевых",
+    "secret": true
+  },
+  {
+    "id": "skromnyaga",
+    "name": "Скромняга",
+    "description": "Установить дневную цель 1 грн",
+    "secret": true
+  },
+  {
+    "id": "mechtatel",
+    "name": "Мечтатель, блядь",
+    "description": "Установить дневную цель 100 000 грн",
+    "secret": true
+  },
+  {
+    "id": "statistik",
+    "name": "Статистик",
+    "description": "Открыть статистику 10 раз за день",
+    "secret": true
+  },
+  {
+    "id": "bez_plana",
+    "name": "Без плана",
+    "description": "Отработать смену без установленной дневной цели",
+    "secret": true
+  },
+  {
+    "id": "zadrot_bota",
+    "name": "Задрот бота",
+    "description": "Выполнить 30 команд за день",
+    "secret": true
+  },
+  {
+    "id": "lentyay",
+    "name": "Лентяй, блядь",
+    "description": "Не выходить на смену 7 дней после рабочих смен",
+    "secret": true
+  },
+  {
+    "id": "filosof",
+    "name": "Философ",
+    "description": "Изменить дневную цель 10 раз за день",
+    "secret": true
+  },
+  {
+    "id": "dyhanie_v_spinu",
+    "name": "Дыхание в спину",
+    "description": "Отставать от лидера недельного рейтинга менее чем на 500 грн",
+    "secret": true
+  },
+  {
+    "id": "fartovaya_grivna",
+    "name": "Фартовая гривна",
+    "description": "Заработок за день заканчивается на 777",
+    "secret": true
+  },
+  {
+    "id": "pervaya_kaplya",
+    "name": "Первая капля",
+    "description": "Получить первое начисление чаевых",
+    "secret": true
+  },
+  {
+    "id": "sotenka",
+    "name": "Сотенка",
+    "description": "Получить 100 грн чаевых одним начислением",
+    "secret": true
+  },
+  {
+    "id": "sotyi_klient",
+    "name": "Сотый клиент",
+    "description": "Получить 100-е начисление чаевых",
+    "secret": true
+  },
+  {
+    "id": "chainyi_fontan",
+    "name": "Чайный фонтан",
+    "description": "Получить 20 начислений чаевых за день",
+    "secret": true
+  },
+  {
+    "id": "dvesti_tysyach_chaya",
+    "name": "Двести тысяч чая",
+    "description": "Получить 200 000 грн чаевых с начала системы",
+    "secret": true
+  },
+  {
+    "id": "million_chaya",
+    "name": "Миллион чая",
+    "description": "Получить 1 000 000 грн чаевых с начала системы",
+    "secret": true
+  },
+  {
+    "id": "peredumal",
+    "name": "Передумал",
+    "description": "Изменить цель после её выполнения",
+    "secret": true
+  },
+  {
+    "id": "luchshe_sebya_vchera",
+    "name": "Лучше себя вчерашнего",
+    "description": "Зарабатывать больше предыдущего дня 5 дней подряд",
+    "secret": true
+  },
+  {
+    "id": "huzhe_no_stabilno",
+    "name": "Хуже, но стабильно",
+    "description": "Три дня подряд быть на 10% ниже командного среднего",
+    "secret": true
+  },
+  {
+    "id": "zolotaya_seredina",
+    "name": "Золотая середина",
+    "description": "Средний заработок за смену за месяц равен командному среднему",
+    "secret": true
+  },
+  {
+    "id": "skachok",
+    "name": "Скачок",
+    "description": "Заработать за месяц на 50% больше предыдущего месяца",
+    "secret": true
+  },
+  {
+    "id": "obval",
+    "name": "Обвал, сука",
+    "description": "Заработать за месяц на 50% меньше предыдущего месяца",
+    "secret": true
+  },
+  {
+    "id": "podem_s_kolen",
+    "name": "Подъём с колен",
+    "description": "После падения увеличить заработок следующего месяца на 100%",
+    "secret": true
+  },
+  {
+    "id": "tot_zhe_den",
+    "name": "Тот же день, что и раньше",
+    "description": "Повторить заработок дня недельной давности",
+    "secret": true
+  },
+  {
+    "id": "eho",
+    "name": "Эхо",
+    "description": "Повторить заработок того же числа предыдущего месяца",
+    "secret": true
+  },
+  {
+    "id": "luchshiy_ponedelnik",
+    "name": "Лучший понедельник",
+    "description": "Поставить рекорд заработка среди всех понедельников",
+    "secret": true
+  },
+  {
+    "id": "luchshaya_subbota",
+    "name": "Лучшая суббота",
+    "description": "Поставить рекорд заработка среди всех суббот",
+    "secret": true
+  },
+  {
+    "id": "polsotni",
+    "name": "Полсотни",
+    "description": "Получить 50 достижений",
+    "secret": true
+  },
+  {
+    "id": "sotka_dostizheniy",
+    "name": "Сотка достижений",
+    "description": "Получить 100 достижений",
+    "secret": true
+  },
+  {
+    "id": "sekretnyi_agent",
+    "name": "Секретный агент",
+    "description": "Открыть 25 скрытых достижений",
+    "secret": true
+  },
+  {
+    "id": "tri_za_den",
+    "name": "Три за день",
+    "description": "Получить 3 достижения за один день",
+    "secret": true
+  },
+  {
+    "id": "pyat_za_smenu",
+    "name": "Пять за смену",
+    "description": "Получить 5 достижений за одну смену",
+    "secret": true
+  },
+  {
+    "id": "ohotnik_za_achivkami",
+    "name": "Охотник за ачивками",
+    "description": "Получать достижение каждый день календарной недели",
+    "secret": true
+  },
+  {
+    "id": "vyebannyi_zhiznyu",
+    "name": "Выебанный жизнью",
+    "description": "Отработать 365 рабочих дней с 19.11.2026",
+    "secret": true
+  },
+  {
+    "id": "vernulsya",
+    "name": "Вернулся, блядь",
+    "description": "Вернуться на смену после перерыва 7 и более дней",
+    "secret": true
+  },
+  {
+    "id": "ebanutiiy",
+    "name": "Ебанутый",
+    "description": "Выполнить дневную цель на 300%",
+    "secret": true
+  },
+  {
+    "id": "nahuy_plan",
+    "name": "Нахуй план",
+    "description": "Выполнить месячную цель на 150%",
+    "secret": true
+  },
+  {
+    "id": "dosrochno",
+    "name": "Досрочно, сука",
+    "description": "Выполнить месячную цель до 20-го числа",
+    "secret": true
+  },
+  {
+    "id": "zaebis_tri_raza",
+    "name": "Заебись три раза",
+    "description": "Выполнить месячную цель 3 месяца подряд",
+    "secret": true
+  }
 ];
 
 function v3AchievementGetMeta(id) {
-  return V3_ACHIEVEMENTS.find(x => x.id === id);
+  return V3_ACHIEVEMENTS.find(x => x.id === id) || V3_SECRET_ACHIEVEMENTS.find(x => x.id === id);
 }
 
 function v3AchievementPeriodKey(repeat, dayISO, weekKey, monthKey) {
@@ -9923,6 +10401,7 @@ async function v3AchievementBuildSnapshot() {
     const parsed = finalEarningsParseDate(dateKey);
     if (!parsed) continue;
     const iso = finalEarningsISODate(parsed);
+    if (iso < V3_ACHIEVEMENT_START_DATE) continue;
     for (const [id,item] of Object.entries(day || {})) {
       if (!item) continue;
       const user = ensureUser(id,item.name);
@@ -9937,6 +10416,7 @@ async function v3AchievementBuildSnapshot() {
     const parsed = finalEarningsParseDate(day.date);
     if (!parsed) continue;
     const iso = finalEarningsISODate(parsed);
+    if (iso < V3_ACHIEVEMENT_START_DATE) continue;
     for (const [id,item] of Object.entries(day.tips || {})) {
       if (!item) continue;
       const user = ensureUser(id,item.name);
@@ -9945,7 +10425,7 @@ async function v3AchievementBuildSnapshot() {
   }
   for (const [id,user] of Object.entries(state.users || {})) ensureUser(id,user?.name);
   for (const record of state.records || []) {
-    if (!record || record.type !== "tea" || record.canceledAt) continue;
+    if (!record || record.type !== "tea" || record.canceledAt || String(record.dateKey || "") < V3_ACHIEVEMENT_START_DATE) continue;
     const user = ensureUser(record.userId,record.name);
     user.maxSingleTip = Math.max(user.maxSingleTip,Number(record.amount)||0);
   }
@@ -9962,15 +10442,15 @@ async function v3AchievementBuildSnapshot() {
     for (const [iso,row] of Object.entries(user.days)) {
       const date=finalEarningsParseDate(iso);
       if (!date) continue;
-      if (finalEarningsWeekKey(date)===weekKey) weekTotal+=row.total;
-      if (finalEarningsMonthKey(date)===monthKey) {monthTotal+=row.total;monthTea+=row.tea;}
+      if (finalEarningsWeekKey(date)===weekKey) weekTotal+=row.earnings;
+      if (finalEarningsMonthKey(date)===monthKey) {monthTotal+=row.earnings;monthTea+=row.tea;}
     }
     monthTotals[id]={total:monthTotal,tea:monthTea};
     user.weekTotal=weekTotal;
     user.monthTotal=monthTotal;
     user.monthTea=monthTea;
     user.today=user.days[today] || {earnings:0,tea:0,total:0};
-    user.workDates=Object.keys(user.days).filter(date=>user.days[date].total>0).sort();
+    user.workDates=Object.keys(user.days).filter(date=>user.days[date].earnings>0).sort();
     user.workdayCount=user.workDates.length;
     let streak=0;
     const workSet=new Set(user.workDates);
@@ -10022,13 +10502,15 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
   const user=snapshot.users.get(String(userId));
   if(!user) return;
   const dayKey=snapshot.today, weekKey=snapshot.weekKey, monthKey=snapshot.monthKey;
-  const daily=user.today.total, tea=user.today.tea;
+  const todayDate=finalEarningsParseDate(dayKey);
+  const daily=user.today.earnings, tea=user.today.tea;
+  const goalDaily=user.today.total;
   const award=async(id,period)=>v3AchievementGrant(snapshot,userId,id,period,newAwards);
   if(daily>=2000) await award("dvushka",dayKey);
   if(daily>=10000) await award("korol_smeny",dayKey);
   if(daily>=5000) await award("zhirny_kush",dayKey);
   if(user.weekTotal>=50000) await award("denezhny_dozhd",weekKey);
-  if(user.monthTotal>=120000) await award("denezhny_meshok",monthKey);
+  if(user.monthTotal>=150000) await award("denezhny_meshok",monthKey);
   if(user.workdayCount>=1) await award("pervyi_vyhod","all");
   if(user.workStreak>=7) await award("trudyaga","all");
   if(user.workStreak>=10) await award("bez_otdyha","all");
@@ -10038,23 +10520,161 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
   if(user.maxSingleTip>=500) await award("pervye_500","all");
   if(tea>=1000) await award("kasar",dayKey);
   if(tea>=2000) await award("chainik",dayKey);
-  if(tea>=2000) await award("shlyuha_klienta",dayKey);
+  if(user.maxSingleTip>=2000) await award("shlyuha_klienta","all");
   if(tea>=5000) await award("pidaras",dayKey);
   if(user.maxSingleTip>=1000) await award("otsosal_klientu","all");
   if(user.monthTea>=30000) await award("chainaya_imperiya",monthKey);
   const dailyGoal=user.todayGoal;
-  const goalPercent=dailyGoal>0?daily/dailyGoal*100:0;
+  const goalPercent=dailyGoal>0?goalDaily/dailyGoal*100:0;
   if(goalPercent>=100) await award("rab_100",dayKey);
   if(goalPercent>=150) await award("perevypolnil_plan",dayKey);
   if(goalPercent>=200) await award("absolyutny_rab",dayKey);
   if(user.goalStreak>=7) await award("bez_ostanovki",dayKey);
   if(user.goalStreak>=3) await award("na_kurazhe",dayKey);
   if(user.monthGoal>0 && user.monthGoalPercent>=100) await award("rab_mesyatsa",monthKey);
-  if(user.monthTotal>0 && user.monthTotal===snapshot.maxMonth) await award("papa_na_raione",monthKey);
+  if(user.monthTotal>0 && user.monthTotal===snapshot.maxMonth && user.isMonthEnd) await award("papa_na_raione",monthKey);
+  // Скрытые достижения — вычисляются по накопленной истории, но только после даты старта.
+  const secretAward = async (id, period) => v3AchievementGrant(snapshot,userId,id,period || "all",newAwards);
+  const allAwards = snapshot.state.achievements || [];
+  const userAwards = allAwards.filter(x=>String(x.userId)===String(userId));
+  const secretAwards = userAwards.filter(x=>V3_SECRET_ACHIEVEMENTS.some(m=>m.id===x.achievementId));
+  const dayRows = Object.entries(user.days).sort((a,b)=>a[0].localeCompare(b[0]));
+  const workRows = dayRows.filter(([d,x])=>x.earnings>0);
+  const tipRecords = (snapshot.state.records||[]).filter(x=>x && x.type==="tea" && !x.canceledAt && String(x.userId)===String(userId) && String(x.dateKey)>=V3_ACHIEVEMENT_START_DATE);
+  const tipTotal = Object.values(user.days).reduce((n,row)=>n+(Number(row.tea)||0),0);
+  const tipCount = tipRecords.length;
+  const todayTips = tipRecords.filter(x=>x.dateKey===dayKey);
+
+  // Календарные и рейтинговые секреты.
+  const dayDate=finalEarningsParseDate(dayKey);
+  const weekday=dayDate.getUTCDay();
+  const dayOfMonth=dayDate.getUTCDate();
+  if((dayKey.endsWith("-12-31") || dayKey.endsWith("-01-01")) && daily>0) await secretAward("novogodniy_yobar",dayKey);
+  if(weekday===5 && dayOfMonth===13 && daily>0) await secretAward("pyatnitsa_13",dayKey);
+  const dayRank=[...snapshot.users.values()].map(x=>({id:x.userId,total:Number(x.days?.[dayKey]?.earnings)||0})).sort((a,b)=>b.total-a.total);
+  if(dayRank[0]?.id===String(userId) && dayRank[0]?.total>0 && dayRank[1]?.total>0 && dayRank[0].total>=dayRank[1].total*2) await secretAward("otryv_suka",dayKey);
+  if(dayRank[0]?.id===String(userId) && dayRank[0]?.total>0) {
+    let topRun=0;
+    for(let n=0;n<10;n++){const d=new Date(dayKey+"T00:00:00Z");d.setUTCDate(d.getUTCDate()-n);const k=finalEarningsISODate(d);const ranking=[...snapshot.users.values()].map(x=>({id:x.userId,total:Number(x.days?.[k]?.earnings)||0})).sort((a,b)=>b.total-a.total);if(ranking[0]?.id===String(userId)&&ranking[0]?.total>0)topRun++;else break;}
+    if(topRun>=10) await secretAward("vechnyi_top","all");
+  }
+  const weekAgo=new Date(dayKey+"T00:00:00Z");weekAgo.setUTCDate(weekAgo.getUTCDate()-7);
+  const weekAgoKey=finalEarningsISODate(weekAgo);
+  if(daily>0 && user.days[weekAgoKey] && Number(user.days[weekAgoKey].earnings)>0 && daily===user.days[weekAgoKey].earnings) await secretAward("tot_zhe_den",dayKey);
+  const monthAgo=new Date(Date.UTC(dayDate.getUTCFullYear(),dayDate.getUTCMonth()-1,dayDate.getUTCDate()));
+  const monthAgoKey=finalEarningsISODate(monthAgo);
+  if(daily>0 && monthAgoKey>=V3_ACHIEVEMENT_START_DATE && user.days[monthAgoKey] && Number(user.days[monthAgoKey].earnings)>0 && daily===user.days[monthAgoKey].earnings) await secretAward("eho",dayKey);
+  // Рекорды по дням недели за всё время новой системы.
+  let weekdayRecord=0;
+  for(const [date,entry] of Object.entries(user.days)){const dt=finalEarningsParseDate(date);if(dt && dt.getUTCDay()===weekday && (weekday===1||weekday===6)) weekdayRecord=Math.max(weekdayRecord,Number(entry.earnings)||0);}
+  if((weekday===1||weekday===6) && daily>0 && daily>=weekdayRecord) await secretAward(weekday===1?"luchshiy_ponedelnik":"luchshaya_subbota",dayKey);
+  // Командное среднее за день: общий заработок / общее число курьерских смен.
+  const dayWorkers=[...snapshot.users.values()].filter(x=>(Number(x.days?.[dayKey]?.earnings)||0)>0);
+  const teamDayAverage=dayWorkers.length?dayWorkers.reduce((n,x)=>n+(Number(x.days?.[dayKey]?.earnings)||0),0)/dayWorkers.length:0;
+  const belowTeamAverage=dayWorkers.length>0 && daily>0 && daily<=teamDayAverage*0.9;
+  let belowRun=belowTeamAverage?1:0;
+  if(belowTeamAverage){for(let n=1;n<3;n++){const dt=new Date(dayKey+"T00:00:00Z");dt.setUTCDate(dt.getUTCDate()-n);const k=finalEarningsISODate(dt);const workers=[...snapshot.users.values()].filter(x=>(Number(x.days?.[k]?.earnings)||0)>0);const avg=workers.length?workers.reduce((sum,x)=>sum+(Number(x.days?.[k]?.earnings)||0),0)/workers.length:0;const own=Number(user.days?.[k]?.earnings)||0;if(!workers.length||!own||own>avg*0.9)break;belowRun++;}}
+  if(belowRun>=3) await secretAward("huzhe_no_stabilno",dayKey);
+  // Цель достигнута до 18:00: проверяем время записей заработка за этот день.
+  if(dailyGoal>0){
+    const timed=(snapshot.state.records||[]).filter(x=>x && !x.canceledAt && String(x.userId)===String(userId) && x.dateKey===dayKey && x.type!=="tea" && x.createdAt);
+    let sumBefore18=0;
+    for(const rec of timed.sort((a,b)=>String(a.createdAt).localeCompare(String(b.createdAt)))){const dt=new Date(rec.createdAt);const parts=new Intl.DateTimeFormat("en-GB",{timeZone:TIMEZONE,hour:"2-digit",minute:"2-digit",hour12:false}).formatToParts(dt);const hh=Number(parts.find(x=>x.type==="hour")?.value);if(hh<18)sumBefore18+=Number(rec.amount)||0;}
+    if(sumBefore18>=dailyGoal) await secretAward("utrenniy_yobar",dayKey);
+  }
+  // Секреты, основанные на изменении дневной цели и активности в боте.
+  const activity=snapshot.state.achievementActivity?.[userId]?.[dayKey] || {};
+  if((Number(activity.statsOpens)||0)>=10) await secretAward("statistik",dayKey);
+  if((Number(activity.commands)||0)>=30) await secretAward("zadrot_bota",dayKey);
+  if((Number(activity.goalChanges)||0)>=10) await secretAward("filosof",dayKey);
+  if(user.dailyGoalHistory?.[dayKey]?.changedAfterComplete) await secretAward("peredumal",dayKey);
+  // Метадостижения считаются по всем обычным и скрытым наградам.
+  const awardsToday=userAwards.filter(x=>String(x.periodKey)===dayKey || String(x.earnedAt||"").startsWith(dayKey));
+  const newToday=newAwards.filter(x=>String(x.userId)===String(userId) && (x.periodKey===dayKey || String(x.earnedAt||"").startsWith(dayKey)));
+  if(awardsToday.length+newToday.length>=3) await secretAward("tri_za_den",dayKey);
+  if(awardsToday.length+newToday.length>=5) await secretAward("pyat_za_smenu",dayKey);
+  const weekStart=new Date(dayKey+"T00:00:00Z");weekStart.setUTCDate(weekStart.getUTCDate()-((weekday+6)%7));
+  const weekDates=new Set(Array.from({length:7},(_,i)=>{const d=new Date(weekStart);d.setUTCDate(d.getUTCDate()+i);return finalEarningsISODate(d);}));
+  const achievementDays=new Set(userAwards.map(x=>String(x.earnedAt||"").slice(0,10)).filter(x=>weekDates.has(x)));
+  for(const x of newToday) achievementDays.add(dayKey);
+  if(achievementDays.size>=7) await secretAward("ohotnik_za_achivkami",weekKey);
+
+  if(tea===777) await secretAward("tri_topora",dayKey);
+  if(daily===1000) await secretAward("kopeika_k_kopeike",dayKey);
+  if(tea>user.today.earnings) await secretAward("huzhe_zarplaty",dayKey);
+  if(daily===2222) await secretAward("zerkalo",dayKey);
+  if(tea===666) await secretAward("dyavolskiy_den",dayKey);
+  if(daily>0 && daily%1000===777) await secretAward("fartovaya_grivna",dayKey);
+  if(tipCount>=1) await secretAward("pervaya_kaplya","all");
+  if(tipRecords.some(x=>Number(x.amount)===100)) await secretAward("sotenka","all");
+  if(tipCount>=100) await secretAward("sotyi_klient","all");
+  if(tipCount>=1000) await secretAward("tysyachnyi_klient","all");
+  if(tipTotal>=200000) await secretAward("dvesti_tysyach_chaya","all");
+  if(tipTotal>=1000000) await secretAward("million_chaya","all");
+  if(todayTips.length>=20) await secretAward("chainyi_fontan",dayKey);
+  if(user.workdayCount>=365) await secretAward("vyebannyi_zhiznyu","all");
+  if(user.todayGoal===1 || (activity.goalTargets||[]).includes(1)) await secretAward("skromnyaga","all");
+  if(user.todayGoal===100000 || (activity.goalTargets||[]).includes(100000)) await secretAward("mechtatel","all");
+  if(goalPercent>=300) await secretAward("ebanutiiy",dayKey);
+  if(user.monthGoal>0 && user.monthGoalPercent>=150) await secretAward("nahuy_plan",monthKey);
+  if(user.monthGoal>0 && user.monthGoalPercent>=100 && Number(dayKey.slice(8,10))<20) await secretAward("dosrochno",monthKey);
+  if(user.monthGoal>0 && user.monthGoalPercent>=100 && user.isMonthEnd) {
+    const priorMonth = new Date(Date.UTC(todayDate.getUTCFullYear(),todayDate.getUTCMonth()-1,1));
+    const priorKey = finalEarningsMonthKey(priorMonth);
+    const twoMonthsAgo = new Date(Date.UTC(todayDate.getUTCFullYear(),todayDate.getUTCMonth()-2,1));
+    const twoMonthsKey = finalEarningsMonthKey(twoMonthsAgo);
+    const priorDone = allAwards.some(x=>String(x.userId)===String(userId)&&x.achievementId==="rab_mesyatsa"&&x.periodKey===priorKey);
+    const twoMonthsDone = allAwards.some(x=>String(x.userId)===String(userId)&&x.achievementId==="rab_mesyatsa"&&x.periodKey===twoMonthsKey);
+    if(priorDone && twoMonthsDone) await secretAward("zaebis_tri_raza",monthKey);
+  }
+  if(user.isMonthEnd && user.monthWorkdays>0) {
+    const teamWorkdays=[...snapshot.users.values()].reduce((n,u)=>n+(u.monthWorkdays||0),0);
+    const teamEarnings=[...snapshot.users.values()].reduce((n,u)=>n+(u.monthTotal||0),0);
+    const teamAvg=teamWorkdays?teamEarnings/teamWorkdays:0;
+    const personalAvg=user.monthWorkdays?user.monthTotal/user.monthWorkdays:0;
+    if(Math.round(personalAvg*100)===Math.round(teamAvg*100)) await secretAward("zolotaya_seredina",monthKey);
+    const priorMonth = new Date(Date.UTC(todayDate.getUTCFullYear(),todayDate.getUTCMonth()-1,1));
+    const priorKey=finalEarningsMonthKey(priorMonth);
+    const twoMonthsAgo = new Date(Date.UTC(todayDate.getUTCFullYear(),todayDate.getUTCMonth()-2,1));
+    const twoMonthsKey = finalEarningsMonthKey(twoMonthsAgo);
+    const monthEarnings = key => Object.entries(user.days).reduce((sum,[date,row])=>sum+(date.startsWith(key+"-")?(Number(row.earnings)||0):0),0);
+    const priorTotal=monthEarnings(priorKey),twoMonthsTotal=monthEarnings(twoMonthsKey);
+    if(priorKey>=V3_ACHIEVEMENT_START_DATE.slice(0,7) && priorTotal>0 && user.monthTotal>=priorTotal*1.5) await secretAward("skachok",monthKey);
+    if(priorKey+"-01">=V3_ACHIEVEMENT_START_DATE && priorTotal>0 && user.monthTotal<=priorTotal*0.5) await secretAward("obval",monthKey);
+    if(priorKey+"-01">=V3_ACHIEVEMENT_START_DATE && twoMonthsTotal>0 && priorTotal<=twoMonthsTotal*0.5 && user.monthTotal>=priorTotal*2) await secretAward("podem_s_kolen",monthKey);
+    const everyWorkdayHasGoal=workRows.filter(([d])=>d.startsWith(monthKey+"-")).every(([d,row])=>Number(user.dailyGoalHistory?.[d]?.target)>0 && row.total>=Number(user.dailyGoalHistory[d].target));
+    if(everyWorkdayHasGoal && user.monthWorkdays>0) await secretAward("kazhdyi_den_kak_nado",monthKey);
+  }
+  const yesterday=new Date(today+"T00:00:00Z");yesterday.setUTCDate(yesterday.getUTCDate()-1);
+  const yISO=finalEarningsISODate(yesterday);
+  if(user.days[yISO] && daily===user.days[yISO].earnings) await secretAward("bliznetsy",dayKey);
+  if(user.days[yISO] && daily>user.days[yISO].earnings) {
+    let rising=1,cur=new Date(today+"T00:00:00Z");
+    for(let j=1;j<5;j++){cur.setUTCDate(cur.getUTCDate()-1);const d=finalEarningsISODate(cur);const p=new Date(cur);p.setUTCDate(p.getUTCDate()-1);const prev=finalEarningsISODate(p);if((user.days[d]?.earnings||0)>(user.days[prev]?.earnings||0))rising++;else break;}
+    if(rising>=5) await secretAward("luchshe_sebya_vchera",dayKey);
+  }
+  if(user.workStreak>=365) await secretAward("vyebannyi_zhiznyu","all");
+  {
+    const priorWorks=user.workDates.filter(d=>d<dayKey);
+    const lastPrior=priorWorks[priorWorks.length-1];
+    const gap=lastPrior?Math.round((Date.parse(dayKey+"T00:00:00Z")-Date.parse(lastPrior+"T00:00:00Z"))/86400000):0;
+    if(lastPrior && daily>0 && gap>=8) await secretAward("vernulsya",dayKey);
+    if(lastPrior && !user.days[dayKey]?.earnings && gap>=7) await secretAward("lentyay",dayKey);
+  }
+  if(daily>0 && !Number(user.dailyGoalHistory?.[dayKey]?.target)) await secretAward("bez_plana",dayKey);
+  if(user.weekTotal>0) {
+    const sorted=[...snapshot.users.values()].map(x=>({id:x.userId,total:x.weekTotal||0})).sort((a,b)=>b.total-a.total);
+    if(sorted[0]?.id!==String(userId) && sorted[0]?.total-(user.weekTotal||0)<500 && sorted[0]?.total>(user.weekTotal||0)) await secretAward("dyhanie_v_spinu",weekKey);
+  }
+  if(userAwards.length>=49) await secretAward("polsotni","all");
+  if(userAwards.length>=99) await secretAward("sotka_dostizheniy","all");
+  if(secretAwards.length>=24) await secretAward("sekretnyi_agent","all");
+
 }
 
 async function v3CheckAchievements(userId) {
-  await v3EvaluateAllAchievements();
+  // Все проверки дневных итогов выполняются централизованно в 23:59 по Киеву.
+  // Награда не выдаётся по промежуточной сумме в течение дня.
 }
 
 async function v3EvaluateAllAchievements() {
@@ -10075,9 +10695,14 @@ async function v3EvaluateAllAchievements() {
   }
   for(const item of newAwards){
     const meta=v3AchievementGetMeta(item.achievementId);
-    const message = "🏆 НОВОЕ ДОСТИЖЕНИЕ!\n\n🔥 " + (item.name || "Курьер") +
-      " получил: «" + (meta?.name || item.achievementId) + "»\n" +
-      (meta?.description || "Так держать!") + "\n\n💪 Глобовец видит ваши старания!";
+    const isSecret=!!meta?.secret;
+    const courierName=(item.name || "Курьер").toUpperCase();
+    const message = item.achievementId==="papa_na_raione"
+      ? "🏆 НОВОЕ ДОСТИЖЕНИЕ!\n\n🔥 ПАПА НА РАЙОНЕ\n\n👑 ПИДАР "+courierName+" ЗАБИРАЕТ СВОЁ!\n\nЭтот ублюдок не просто работал — он разъёбывал месячный рейтинг заработка! 💸\n\nПока остальные нюхали выхлоп, "+courierName+" забрал первое место и показал, кто тут батя, а кто массовка!\n\nРАЙОН ПОД КОНТРОЛЕМ. ОСТАЛЬНЫМ — СОСАТЬ! 🖕🔥"
+      : "🏆 НОВОЕ ДОСТИЖЕНИЕ!\n\n" +
+        (isSecret ? "🟣 СЕКРЕТНОЕ ДОСТИЖЕНИЕ РАСКРЫТО!\n\n" : "🟡 ОБЫЧНОЕ ДОСТИЖЕНИЕ\n\n") +
+        "🔥 " + courierName + " ПОЛУЧАЕТ: «" + (meta?.name || item.achievementId).toUpperCase() + "»\n\n" +
+        (meta?.description || "Так держать!") + "\n\nЕщё один день, когда этот ублюдок доказал, что остальные просто массовка. 💸🔥";
     try { await bot.telegram.sendMessage(groupChatId,message); }
     catch(error){console.error("V3 achievement group notification:",groupChatId,error.message);}
   }
@@ -10093,8 +10718,25 @@ bot.hears(/^мои достижения$/i,async ctx=>{
 bot.hears(/^достижения$/i,async ctx=>{
   const state=await v3LoadEarningsState();
   const earned=(state.achievements||[]).filter(x=>String(x.userId)===String(ctx.from.id));
-  const lines=V3_ACHIEVEMENTS.map((x,i)=>(i+1)+". "+x.name+" — "+x.description+(earned.some(a=>a.achievementId===x.id)?" ✅":""));
-  await ctx.reply("🏆 СПИСОК ДОСТИЖЕНИЙ ("+V3_ACHIEVEMENTS.length+")\n━━━━━━━━━━━━━━\n"+lines.join("\n"));
+  const ordinary=V3_ACHIEVEMENTS.map((x,i)=>(i+1)+". "+(earned.some(a=>a.achievementId===x.id)?"🟡":"⚫")+" "+x.name);
+  const hidden=V3_SECRET_ACHIEVEMENTS.filter(x=>earned.some(a=>a.achievementId===x.id)).length;
+  const keyboard={inline_keyboard:V3_ACHIEVEMENTS.map(x=>[{text:(earned.some(a=>a.achievementId===x.id)?"🏅 ":"🔒 ")+x.name,callback_data:"v3_ach_"+x.id}]).concat([[{text:"🟣 Скрытые достижения ("+hidden+"/51)",callback_data:"v3_ach_hidden"}]])};
+  await ctx.reply("🏆 ДОСТИЖЕНИЯ\n━━━━━━━━━━━━━━\n🟡 ОБЫЧНЫЕ ("+earned.filter(a=>V3_ACHIEVEMENTS.some(x=>x.id===a.achievementId)).length+"/"+V3_ACHIEVEMENTS.length+")\n"+ordinary.join("\n")+"\n\n🟣 Скрытые: "+hidden+"/51\nНераскрытые секреты не показываются.",{reply_markup:keyboard});
+});
+bot.action("v3_ach_hidden",async ctx=>{
+  const state=await v3LoadEarningsState(),mine=(state.achievements||[]).filter(x=>String(x.userId)===String(ctx.from.id));
+  const count=mine.filter(a=>V3_SECRET_ACHIEVEMENTS.some(x=>x.id===a.achievementId)).length;
+  await ctx.answerCbQuery("Скрытые достижения: "+count+"/51");
+  const unlocked=mine.filter(a=>V3_SECRET_ACHIEVEMENTS.some(x=>x.id===a.achievementId)).sort((a,b)=>String(a.earnedAt).localeCompare(String(b.earnedAt)));
+  const rows=unlocked.map((a,i)=>{const m=v3AchievementGetMeta(a.achievementId);return (i+1)+". 🟣 "+m.name+" — "+String(a.earnedAt||"").slice(0,10);});
+  await ctx.reply("🟣 СЕКРЕТНЫЕ ДОСТИЖЕНИЯ\n━━━━━━━━━━━━━━\nСкрытые: "+count+"/51\n\n"+(rows.length?rows.join("\n"):"Пока ни одно не раскрыто.")+"\n\nОстальные условия останутся тайной до выполнения.");
+});
+bot.action(/^v3_ach_([a-z0-9_]+)$/,async ctx=>{
+  const id=ctx.match[1],meta=v3AchievementGetMeta(id);
+  if(!meta || meta.secret){await ctx.answerCbQuery("Это секретная награда");return;}
+  const state=await v3LoadEarningsState(),award=(state.achievements||[]).find(x=>String(x.userId)===String(ctx.from.id)&&x.achievementId===id);
+  await ctx.answerCbQuery();
+  await ctx.reply("🏅 "+meta.name+"\n\n"+meta.description+"\n\nСтатус: "+(award?"Получено ✅":"Пока не получено ⚫")+(award?"\nДата: "+String(award.earnedAt).slice(0,10):""));
 });
 
 bot.hears(/^топ достижений$/i,async ctx=>{
