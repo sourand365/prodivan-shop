@@ -44,26 +44,24 @@ New-Item -ItemType Directory -Path $temp -Force | Out-Null
 $repoPath = 'Глобовец 3.1.1'
 
 try {
-  Write-Host 'Downloading Globovets 3.1.1 files from GitHub...' -ForegroundColor Yellow
+  Write-Host 'Downloading Globovets 3.1.1 files from GitHub (raw)...' -ForegroundColor Yellow
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
   foreach ($file in $required) {
     Write-Host ('  Downloading: ' + $file)
     $relativePath = $repoPath + '/' + $file
     $encodedPath = (($relativePath -split '/') | ForEach-Object { [Uri]::EscapeDataString($_) }) -join '/'
-    $apiUrl = 'https://api.github.com/repos/sourand365/prodivan-shop/contents/' + $encodedPath + '?ref=main'
+    $url = 'https://raw.githubusercontent.com/sourand365/prodivan-shop/main/' + $encodedPath
+    $destination = Join-Path $temp $file
     try {
-      $response = Invoke-RestMethod -Uri $apiUrl -Headers @{ 'User-Agent' = 'Globovets-Updater' } -Method Get
+      Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $destination
     }
     catch {
-      throw ("GitHub could not provide " + $file + ". URL: " + $apiUrl + ". Details: " + $_.Exception.Message)
+      throw ("GitHub could not provide " + $file + ". URL: " + $url + ". Details: " + $_.Exception.Message)
     }
-    if (-not $response.content) {
-      throw ("GitHub returned no file content for " + $file)
+    if (-not (Test-Path $destination) -or (Get-Item $destination).Length -lt 10) {
+      throw ("Downloaded file is missing, empty, or damaged: " + $file)
     }
-    $bytes = [Convert]::FromBase64String(($response.content -replace '\s',''))
-    if ($bytes.Length -lt 10) {
-      throw ("Downloaded file is empty or damaged: " + $file)
-    }
-    [System.IO.File]::WriteAllBytes((Join-Path $temp $file), $bytes)
   }
 
   foreach ($file in $required) {
