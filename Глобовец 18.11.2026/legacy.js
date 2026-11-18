@@ -10667,12 +10667,6 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
     const sorted=[...snapshot.users.values()].map(x=>({id:x.userId,total:x.weekTotal||0})).sort((a,b)=>b.total-a.total);
     if(sorted[0]?.id!==String(userId) && sorted[0]?.total-(user.weekTotal||0)<500 && sorted[0]?.total>(user.weekTotal||0)) await secretAward("dyhanie_v_spinu",weekKey);
   }
-  if(user.monthGoal>0 && user.monthGoalPercent>=100 && user.isMonthEnd) {
-    const prev=new Date(Date.UTC(todayDate.getUTCFullYear(),todayDate.getUTCMonth()-1,1));
-    const prevKey=finalEarningsMonthKey(prev);
-    const prevDone=userAwards.some(x=>x.achievementId==="rab_mesyatsa"&&x.periodKey===prevKey);
-    if(prevDone) await secretAward("zaebis_tri_raza",monthKey);
-  }
   if(userAwards.length>=49) await secretAward("polsotni","all");
   if(userAwards.length>=99) await secretAward("sotka_dostizheniy","all");
   if(secretAwards.length>=24) await secretAward("sekretnyi_agent","all");
