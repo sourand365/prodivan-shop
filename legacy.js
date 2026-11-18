@@ -9777,6 +9777,15 @@ bot.hears(/^сравнить\s+(\d{4})[.-](\d{2})\s*-\s*(\d{4})[.-](\d{2})$/i, a
         if (worked) count++;
       }
     }
+    const tipsState = await loadTipsState();
+    await ensureTipsDay(tipsState);
+    const tipDays = [];
+    if (tipsState.currentDate) tipDays.push({ date: tipsState.currentDate, tips: tipsState.today || {} });
+    for (const day of tipsState.archive || []) if (day?.date) tipDays.push(day);
+    for (const day of tipDays) {
+      const parsed = finalEarningsParseDate(day.date);
+      if (parsed && finalEarningsMonthKey(parsed) === key && Number(day.tips?.[userId]?.amount) > 0) count++;
+    }
     return count;
   };
   const wa=await workdays(a), wb=await workdays(b);
@@ -9798,6 +9807,16 @@ async function v3AverageForPeriod(userId, period, key) {
           if (!worked) { const tea = await finalEarningsTeaForDate(date); worked = Number(tea?.[String(userId)]?.amount) > 0; }
       if (worked) days.add(finalEarningsISODate(parsed));
           }
+  }
+  const tipsState = await loadTipsState();
+  await ensureTipsDay(tipsState);
+  const tipDays = [];
+  if (tipsState.currentDate) tipDays.push({ date: tipsState.currentDate, tips: tipsState.today || {} });
+  for (const day of tipsState.archive || []) if (day?.date) tipDays.push(day);
+  for (const day of tipDays) {
+    const parsed = finalEarningsParseDate(day.date);
+    const pkey = parsed ? (period === "week" ? finalEarningsWeekKey(parsed) : finalEarningsMonthKey(parsed)) : null;
+    if (pkey === key && Number(day.tips?.[String(userId)]?.amount) > 0) days.add(finalEarningsISODate(parsed));
   }
   const data=await finalEarningsPeriodEntriesForKey(period,key,state);
   const mine=data.find(x=>String(x.userId)===String(userId));
