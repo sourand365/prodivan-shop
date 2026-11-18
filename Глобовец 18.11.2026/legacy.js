@@ -10703,10 +10703,13 @@ async function v3EvaluateAllAchievements() {
   for(const item of newAwards){
     const meta=v3AchievementGetMeta(item.achievementId);
     const isSecret=!!meta?.secret;
-    const message = "🏆 НОВОЕ ДОСТИЖЕНИЕ!\n\n" +
-      (isSecret ? "🟣 СЕКРЕТНОЕ ДОСТИЖЕНИЕ РАСКРЫТО!\n\n" : "🟡 ОБЫЧНОЕ ДОСТИЖЕНИЕ\n\n") +
-      "🔥 " + (item.name || "Курьер").toUpperCase() + " ПОЛУЧАЕТ: «" + (meta?.name || item.achievementId).toUpperCase() + "»\n\n" +
-      (meta?.description || "Так держать!") + "\n\nЕщё один день, когда этот ублюдок доказал, что остальные просто массовка. 💸🔥";
+    const courierName=(item.name || "Курьер").toUpperCase();
+    const message = item.achievementId==="papa_na_raione"
+      ? "🏆 НОВОЕ ДОСТИЖЕНИЕ!\n\n🔥 ПАПА НА РАЙОНЕ\n\n👑 ПИДАР "+courierName+" ЗАБИРАЕТ СВОЁ!\n\nЭтот ублюдок не просто работал — он разъёбывал месячный рейтинг заработка! 💸\n\nПока остальные нюхали выхлоп, "+courierName+" забрал первое место и показал, кто тут батя, а кто массовка!\n\nРАЙОН ПОД КОНТРОЛЕМ. ОСТАЛЬНЫМ — СОСАТЬ! 🖕🔥"
+      : "🏆 НОВОЕ ДОСТИЖЕНИЕ!\n\n" +
+        (isSecret ? "🟣 СЕКРЕТНОЕ ДОСТИЖЕНИЕ РАСКРЫТО!\n\n" : "🟡 ОБЫЧНОЕ ДОСТИЖЕНИЕ\n\n") +
+        "🔥 " + courierName + " ПОЛУЧАЕТ: «" + (meta?.name || item.achievementId).toUpperCase() + "»\n\n" +
+        (meta?.description || "Так держать!") + "\n\nЕщё один день, когда этот ублюдок доказал, что остальные просто массовка. 💸🔥";
     try { await bot.telegram.sendMessage(groupChatId,message); }
     catch(error){console.error("V3 achievement group notification:",groupChatId,error.message);}
   }
@@ -10731,7 +10734,9 @@ bot.action("v3_ach_hidden",async ctx=>{
   const state=await v3LoadEarningsState(),mine=(state.achievements||[]).filter(x=>String(x.userId)===String(ctx.from.id));
   const count=mine.filter(a=>V3_SECRET_ACHIEVEMENTS.some(x=>x.id===a.achievementId)).length;
   await ctx.answerCbQuery("Скрытые достижения: "+count+"/51");
-  await ctx.reply("🟣 СЕКРЕТНЫЕ ДОСТИЖЕНИЯ\n━━━━━━━━━━━━━━\nСкрытые: "+count+"/51\nОстальные условия останутся тайной до выполнения.");
+  const unlocked=mine.filter(a=>V3_SECRET_ACHIEVEMENTS.some(x=>x.id===a.achievementId)).sort((a,b)=>String(a.earnedAt).localeCompare(String(b.earnedAt)));
+  const rows=unlocked.map((a,i)=>{const m=v3AchievementGetMeta(a.achievementId);return (i+1)+". 🟣 "+m.name+" — "+String(a.earnedAt||"").slice(0,10);});
+  await ctx.reply("🟣 СЕКРЕТНЫЕ ДОСТИЖЕНИЯ\n━━━━━━━━━━━━━━\nСкрытые: "+count+"/51\n\n"+(rows.length?rows.join("\n"):"Пока ни одно не раскрыто.")+"\n\nОстальные условия останутся тайной до выполнения.");
 });
 bot.action(/^v3_ach_([a-z0-9_]+)$/,async ctx=>{
   const id=ctx.match[1],meta=v3AchievementGetMeta(id);
