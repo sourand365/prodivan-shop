@@ -9736,24 +9736,36 @@ bot.hears(/^(?:аист|история)$/i, async ctx => {
   await ctx.reply("📜 ИСТОРИЯ ИЗМЕНЕНИЙ\n━━━━━━━━━━━━━━\n" + lines.join("\n\n"));
 });
 
-// Личный календарь: Календарь или Календарь 2026.10.
+// Рисуем PNG календаря без нативных модулей и внешних зависимостей.
 async function v3Calendar(ctx, monthInput) {
-  const match = String(monthInput || "").match(/^(\d{4})[.-](\d{2})$/);
-  const now = finalEarningsParseDate(finalEarningsToday());
-  const year = match ? Number(match[1]) : now.getUTCFullYear();
-  const month = match ? Number(match[2]) : now.getUTCMonth()+1;
-  if (month < 1 || month > 12) return ctx.reply("❌ Формат: Календарь 2026.10");
-  const userId = String(ctx.from.id);
-  const daysInMonth = new Date(Date.UTC(year,month,0)).getUTCDate();
-  const lines = [];
-  let total = 0, workdays = 0;
-  for (let d=1; d<=daysInMonth; d++) {
-    const key = year + "-" + String(month).padStart(2,"0") + "-" + String(d).padStart(2,"0");
-    const report = await finalEarningsReport(userId,key);
-    if (report.total > 0) { total += report.total; workdays++; }
-    lines.push(String(d).padStart(2,"0") + " — " + report.total + " грн" + (report.total > 0 ? " 🟢" : ""));
+  const match=String(monthInput||"").match(/^(\\d{4})[.-](\\d{2})$/),now=finalEarningsParseDate(finalEarningsToday());
+  const year=match?Number(match[1]):now.getUTCFullYear(),month=match?Number(match[2]):now.getUTCMonth()+1;
+  if(month<1||month>12)return ctx.reply("❌ Формат: Календарь 2026.10");
+  const userId=String(ctx.from.id),daysInMonth=new Date(Date.UTC(year,month,0)).getUTCDate(),daily=[];
+  let total=0,workdays=0;
+  for(let day=1;day<=daysInMonth;day++){
+    const key=year+"-"+String(month).padStart(2,"0")+"-"+String(day).padStart(2,"0");
+    const report=await finalEarningsReport(userId,key),amount=Math.max(0,Math.round(Number(report.total)||0));
+    daily.push(amount);if(amount>0){total+=amount;workdays++;}
   }
-  await ctx.reply("🗓 КАЛЕНДАРЬ ЗАРАБОТКА\n" + String(month).padStart(2,"0") + "." + year + "\n━━━━━━━━━━━━━━\n" + lines.join("\n") + "\n━━━━━━━━━━━━━━\n💰 Итого: " + total + " грн\n📅 Рабочих дней: " + workdays + "\n📊 Среднее за рабочий день: " + (workdays ? Math.round(total/workdays) : 0) + " грн");
+  const width=840,height=900,pixels=Buffer.alloc(width*height*4);
+  const C={bg:[15,23,42,255],empty:[38,50,68,255],earned:[20,91,70,255],panel:[30,41,59,255],accent:[250,204,21,255],white:[248,250,252,255],muted:[148,163,184,255],line:[71,85,105,255]};
+  function rect(x,y,w,h,c){for(let yy=Math.max(0,y);yy<Math.min(height,y+h);yy++)for(let xx=Math.max(0,x);xx<Math.min(width,x+w);xx++){const p=(yy*width+xx)*4;pixels[p]=c[0];pixels[p+1]=c[1];pixels[p+2]=c[2];pixels[p+3]=c[3];}}
+  const F={"0":[14,17,19,21,25,17,14],"1":[4,12,4,4,4,4,14],"2":[14,17,1,2,4,8,31],"3":[30,1,1,14,1,17,14],"4":[2,6,10,18,31,2,2],"5":[31,16,16,30,1,17,14],"6":[6,8,16,30,17,17,14],"7":[31,1,2,4,8,8,8],"8":[14,17,17,14,17,17,14],"9":[14,17,17,15,1,2,12],"A":[14,17,17,31,17,17,17],"B":[30,17,17,30,17,17,30],"C":[14,17,16,16,16,17,14],"D":[28,18,17,17,17,18,28],"E":[31,16,16,30,16,16,31],"F":[31,16,16,30,16,16,16],"G":[14,17,16,23,17,17,15],"H":[17,17,17,31,17,17,17],"I":[14,4,4,4,4,4,14],"J":[7,2,2,2,2,18,12],"K":[17,18,20,24,20,18,17],"L":[16,16,16,16,16,16,31],"M":[17,27,21,21,17,17,17],"N":[17,25,21,19,17,17,17],"O":[14,17,17,17,17,17,14],"P":[30,17,17,30,16,16,16],"Q":[14,17,17,17,21,18,13],"R":[30,17,17,30,20,18,17],"S":[15,16,16,14,1,1,30],"T":[31,4,4,4,4,4,4],"U":[17,17,17,17,17,17,14],"V":[17,17,17,17,17,10,4],"W":[17,17,17,21,21,21,10],"X":[17,17,10,4,10,17,17],"Y":[17,17,10,4,4,4,4],"Z":[31,1,2,4,8,16,31],".":[0,0,0,0,0,12,12],":":[0,12,12,0,12,12,0],"-":[0,0,0,31,0,0,0],"/":[1,2,2,4,8,8,16]," ":[0,0,0,0,0,0,0]};
+  function txt(value,x,y,scale,color){let cx=x;for(const ch of String(value).toUpperCase()){const g=F[ch]||F[" "];for(let yy=0;yy<7;yy++)for(let xx=0;xx<5;xx++)if(g[yy]&(1<<(4-xx)))rect(cx+xx*scale,y+yy*scale,scale,scale,color);cx+=6*scale;}return cx-x;}
+  rect(0,0,width,height,C.bg);rect(0,0,width,10,C.accent);txt("GLOBOVETS / EARNINGS",42,38,4,C.white);txt(year+"."+String(month).padStart(2,"0"),42,82,4,C.accent);txt("GREEN = WORK DAY",540,88,2,C.muted);
+  const labels=["MON","TUE","WED","THU","FRI","SAT","SUN"],left=24,top=190,gap=8,cw=108,ch=100;
+  for(let col=0;col<7;col++)txt(labels[col],left+col*(cw+gap)+24,160,2,C.muted);
+  const offset=(new Date(Date.UTC(year,month-1,1)).getUTCDay()+6)%7;
+  for(let day=1;day<=daysInMonth;day++){const slot=offset+day-1,row=Math.floor(slot/7),col=slot%7,x=left+col*(cw+gap),y=top+row*(ch+gap),amount=daily[day-1];rect(x,y,cw,ch,amount>0?C.earned:C.empty);rect(x,y,cw,4,amount>0?C.accent:C.line);txt(String(day).padStart(2,"0"),x+10,y+13,3,C.white);if(amount>0){txt(String(amount),x+10,y+59,2,C.white);rect(x+cw-17,y+13,7,7,C.accent);}else txt("-",x+12,y+61,2,C.muted);}
+  const fy=top+6*(ch+gap)+8;rect(24,fy,792,104,C.panel);txt("TOTAL "+total+" UAH",44,fy+18,3,C.accent);txt("WORK DAYS "+workdays,44,fy+62,2,C.white);txt("AVG "+(workdays?Math.round(total/workdays):0)+" UAH",450,fy+62,2,C.white);
+  function crc32(buf){let v=0xffffffff;for(const z of buf){v^=z;for(let k=0;k<8;k++)v=(v>>>1)^((v&1)?0xedb88320:0);}return(v^0xffffffff)>>>0;}
+  function chunk(type,data){const t=Buffer.from(type),l=Buffer.alloc(4),cr=Buffer.alloc(4);l.writeUInt32BE(data.length);cr.writeUInt32BE(crc32(Buffer.concat([t,data])));return Buffer.concat([l,t,data,cr]);}
+  const raw=Buffer.alloc((width*4+1)*height);for(let y=0;y<height;y++){const o=y*(width*4+1);raw[o]=0;pixels.copy(raw,o+1,y*width*4,(y+1)*width*4);}
+  const ihdr=Buffer.alloc(13);ihdr.writeUInt32BE(width,0);ihdr.writeUInt32BE(height,4);ihdr[8]=8;ihdr[9]=6;
+  const png=Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk("IHDR",ihdr),chunk("IDAT",__globovetsZlib.deflateSync(raw)),chunk("IEND",Buffer.alloc(0))]);
+  const caption="🗓 Календарь заработка "+String(month).padStart(2,"0")+"."+year+"\\n💰 Итого: "+total+" грн | 📅 Рабочих дней: "+workdays+" | 📊 Среднее: "+(workdays?Math.round(total/workdays):0)+" грн";
+  await ctx.replyWithPhoto({source:png},{caption});
 }
 bot.hears(/^календарь(?:\s+(\d{4}[.-]\d{2}))?$/i, async ctx => v3Calendar(ctx,ctx.match[1]));
 
@@ -10039,13 +10051,24 @@ async function v3EvaluateAllAchievements() {
   for(const userId of snapshot.users.keys()) await v3EvaluateAchievementsForUser(snapshot,userId,newAwards);
   if(!newAwards.length) return;
   await finalEarningsSave(snapshot.state);
+  let groupChatId = null;
+  try {
+    const sessionChat = await db.collection("courier-session-booking").findOne({ key: "main" });
+    groupChatId = sessionChat?.data?.lastGroupChatId || null;
+  } catch (error) { console.error("V3 achievement group lookup:", error.message); }
+  if (!groupChatId) {
+    console.error("V3 achievement notification: общий чат ещё не сохранён; награды записаны, объявление пропущено.");
+    return;
+  }
   for(const item of newAwards){
     const meta=v3AchievementGetMeta(item.achievementId);
-    try { await bot.telegram.sendMessage(item.userId,"🏆 НОВОЕ ДОСТИЖЕНИЕ!\n\n"+meta.name+"\n"+meta.description); }
-    catch(error){console.error("V3 achievement notification:",item.userId,error.message);}
+    const message = "🏆 НОВОЕ ДОСТИЖЕНИЕ!\\n\\n🔥 " + (item.name || "Курьер") +
+      " получил: «" + (meta?.name || item.achievementId) + "»\\n" +
+      (meta?.description || "Так держать!") + "\\n\\n💪 Глобовец видит ваши старания!";
+    try { await bot.telegram.sendMessage(groupChatId,message); }
+    catch(error){console.error("V3 achievement group notification:",groupChatId,error.message);}
   }
 }
-
 bot.hears(/^мои достижения$/i,async ctx=>{
   const state=await v3LoadEarningsState();
   const mine=(state.achievements||[]).filter(x=>String(x.userId)===String(ctx.from.id)).sort((a,b)=>String(b.earnedAt).localeCompare(String(a.earnedAt)));
