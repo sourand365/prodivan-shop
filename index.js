@@ -164,33 +164,6 @@ function makeBackup() {
 }
 
 async function start() {
-  // Complaint handler must be registered before legacy.js because legacy.js
-  // ends with a bot.on("text") middleware that consumes unmatched text updates.
-
-  // Audio reply for the exact triggers "Жалоба" and "жб".
-  const complaintAudioParts = ["01", "02", "03", "04a", "04b", "04c"].map(part =>
-    fs.readFileSync(
-      path.join(__dirname, "assets", "complaint-audio-" + part + ".b64"),
-      "utf8"
-    ).trim()
-  );
-  const complaintAudio = Buffer.from(complaintAudioParts.join(""), "base64");
-  if (!complaintAudio.length) {
-    throw new Error("Не удалось загрузить аудио для команды «Жалоба».");
-  }
-
-  bot.hears(/^\s*(?:жалоба|жб)\s*$/iu, async ctx => {
-    try {
-      await ctx.replyWithVoice({
-        source: complaintAudio,
-        filename: "complaint.ogg"
-      });
-    } catch (error) {
-      console.error("Ошибка отправки аудио жалобы:", error);
-      await ctx.reply("❌ Не удалось отправить аудио. Попробуй ещё раз.");
-    }
-  });
-
   const legacyPath = path.join(__dirname, "legacy.js");
   if (!fs.existsSync(legacyPath)) throw new Error("Не найден legacy.js.");
   const legacySource = fs.readFileSync(legacyPath, "utf8");
