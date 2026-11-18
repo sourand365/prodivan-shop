@@ -75,24 +75,27 @@ function isAdmin(ctx) {
 bot.hears(/^техраб$/i, async ctx => {
   if (!isAdmin(ctx)) return;
   await ctx.reply(
-    "🛠️ <b>Внимание! Технические работы</b>\n\n" +
-    "В боте «Глобовец» сейчас будут проводиться технические работы.\n\n" +
-    "Большая просьба: временно не спамить сообщениями, на которые бот отвечает или которые обрабатывает. Это поможет избежать ошибок, задержек и потери данных.\n\n" +
+    "🛠️ <b>Внимание! Технические работы</b>\\n\\n" +
+    "В боте «Глобовец» сейчас будут проводиться технические работы.\\n\\n" +
+    "Большая просьба: временно не спамить сообщениями, на которые бот отвечает или которые обрабатывает. Это поможет избежать ошибок, задержек и потери данных.\\n\\n" +
     "Спасибо за понимание! 🙏",
     { parse_mode: "HTML" }
   );
+  try { await ctx.deleteMessage(); }
+  catch (error) { console.warn("Не удалось удалить сообщение «Техраб»:", error.message || error); }
 });
 
 bot.hears(/^оттех$/i, async ctx => {
   if (!isAdmin(ctx)) return;
   await ctx.reply(
-    "✅ <b>Технические работы завершены!</b>\n\n" +
-    "Бот «Глобовец» снова в строю и готов к работе! 🚀\n\n" +
+    "✅ <b>Технические работы завершены!</b>\\n\\n" +
+    "Бот «Глобовец» снова в строю и готов к работе! 🚀\\n\\n" +
     "Спасибо за терпение и понимание. Если заметите ошибки или сбои, сообщите об этом администрации. 🙌",
     { parse_mode: "HTML" }
   );
+  try { await ctx.deleteMessage(); }
+  catch (error) { console.warn("Не удалось удалить сообщение «Оттех»:", error.message || error); }
 });
-
 
 
 function getNowKyiv() {
@@ -3308,9 +3311,10 @@ const SUPPORT_JAR_URL =
   "https://send.monobank.ua/jar/LojUrYF86";
 
 const SUPPORT_TEXT =
-  "Теперь бот не улетит и не будет лагать только в случае блекаутов! ⚡\n\n" +
-  "Также хочу напомнить, что он полностью оккупировал мой ноутбук 😅, " +
-  "так что, если не жалко копеечку, закинь на банку ❤️";
+  "🛠 Каждое обновление бота — это часы работы, проверки и исправления ошибок.\\n\\n" +
+  "Иногда за одной новой функцией стоят долгие поиски решения и непростые доработки.\\n\\n" +
+  "Если хочешь поддержать развитие бота и помочь выпускать новые обновления — буду благодарен за донат ❤️\\n\\n" +
+  "Даже небольшая поддержка очень мотивирует двигаться дальше! 🙏";
 
 
 // ------------------------------------------------------------
@@ -8618,7 +8622,6 @@ async function finalEarningsPeriodEntriesForKey(
         0,
         0,
         0,
-        0,
 
         item.amount
       );
@@ -9797,12 +9800,13 @@ async function v3Calendar(ctx, monthInput) {
   const match=String(monthInput||"").match(/^(\d{4})[.-](\d{2})$/),now=finalEarningsParseDate(finalEarningsToday());
   const year=match?Number(match[1]):now.getUTCFullYear(),month=match?Number(match[2]):now.getUTCMonth()+1;
   if(month<1||month>12)return ctx.reply("❌ Формат: Календарь 2026.10");
-  const userId=String(ctx.from.id),daysInMonth=new Date(Date.UTC(year,month,0)).getUTCDate(),daily=[];
+  const userId=String(ctx.from.id),daysInMonth=new Date(Date.UTC(year,month,0)).getUTCDate(),daily=[],details=[];
   let total=0,workdays=0;
   for(let day=1;day<=daysInMonth;day++){
     const key=year+"-"+String(month).padStart(2,"0")+"-"+String(day).padStart(2,"0");
-    const report=await finalEarningsReport(userId,key),amount=Math.max(0,Math.round((Number(report.total)||0)-(Number(report.tea)||0)));
+    const report=await finalEarningsReport(userId,key),amount=Math.max(0,Math.round(Number(report.total)||0));
     daily.push(amount);if(amount>0){total+=amount;workdays++;}
+    details.push(String(day).padStart(2,"0")+": Glovo "+(report.glovo||0)+" | Bolt "+(report.bolt||0)+" | iPOST "+(report.ipost||0)+" | Bolt TR "+(report.bolttr||0)+" | Личные "+(report.personal||0)+" | Этажи "+(report.floors||0)+" | Чай "+(report.tea||0)+" | Итого "+amount+" грн");
   }
   const average=workdays?total/workdays:0;
   const width=840,height=960,pixels=Buffer.alloc(width*height*4);
@@ -9823,6 +9827,7 @@ async function v3Calendar(ctx, monthInput) {
   const png=Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk("IHDR",ihdr),chunk("IDAT",__globovetsZlib.deflateSync(raw)),chunk("IEND",Buffer.alloc(0))]);
   const caption="🗓 Календарь заработка "+String(month).padStart(2,"0")+"."+year+"\n💰 Итого: "+total+" грн | 📅 Рабочих дней: "+workdays+" | 📊 Среднее: "+(workdays?Math.round(total/workdays):0)+" грн";
   await ctx.replyWithPhoto({source:png},{caption});
+  await ctx.reply("📋 ПОДРОБНО ПО ДНЯМ — "+String(month).padStart(2,"0")+"."+year+"\\n"+details.join("\\n"));
 }
 bot.hears(/^календарь(?:\s+(\d{4}[.-]\d{2}))?$/i, async ctx => v3Calendar(ctx,ctx.match[1]));
 
