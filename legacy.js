@@ -1603,6 +1603,11 @@ bot.hears(
         (Number(item.amount) || 0) + amount;
 
       await saveTipsState(state);
+      await v3AddRecord({
+        userId, name, type: "tea", amount,
+        dateKey: finalEarningsISODate(new Date(new Date().toLocaleString("en-US", { timeZone: TIMEZONE }))),
+        createdBy: userId
+      });
 
       // Сохраняем прежнее подтверждение добавления чаевых.
       await ctx.reply(
@@ -9472,3 +9477,289 @@ bot.on("text", async ctx => {
     console.error("Ошибка отправки мем-стикера:", err);
   }
 });
+
+
+// ============================================================
+// GLOBOVETS V3 EXTENSION
+// Дневные цели, общий прогресс, календарь, сравнение,
+// быстрый ввод, история и адресная отмена записей.
+// ============================================================
+
+async function v3LoadEarningsState() {
+  const state = await finalEarningsLoad();
+  if (!state.goals) state.goals = {};
+  if (!state.goals.day) state.goals.day = {};
+  if (!Array.isArray(state.records)) state.records = [];
+  if (!Array.isArray(state.audit)) state.audit = [];
+  if (!Array.isArray(state.goalReportChatIds)) state.goalReportChatIds = [];
+  if (!state.v3Sent) state.v3Sent = {};
+  return state;
+}
+
+function v3DateISO(value) {
+  const parsed = finalEarningsParseDate(value || finalEarningsToday());
+  return parsed ? finalEarningsISODate(parsed) : null;
+}
+
+async function v3AddRecord(data) {
+  const state = await v3LoadEarningsState();
+  const record = {
+    id: "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    userId: String(data.userId),
+    name: String(data.name || state.users?.[String(data.userId)]?.name || "Курьер"),
+    type: String(data.type),
+    amount: Number(data.amount),
+    dateKey: v3DateISO(data.dateKey),
+    createdAt: new Date().toISOString(),
+    createdBy: String(data.createdBy || data.userId),
+    canceledAt: null,
+    canceledBy: null
+  };
+  if (!record.dateKey || !Number.isInteger(record.amount) || record.amount <= 0) return;
+  state.records.push(record);
+  state.audit.push({ at: record.createdAt, action: "add", recordId: record.id, userId: record.userId, name: record.name, type: record.type, amount: record.amount, by: record.createdBy });
+  if (state.records.length > 15000) state.records = state.records.slice(-15000);
+  if (state.audit.length > 15000) state.audit = state.audit.slice(-15000);
+  await finalEarningsSave(state);
+}
+
+const v3OriginalEarningsAdd = finalEarningsAdd;
+finalEarningsAdd = async function(ctx, type, amount, dateInput) {
+  await v3OriginalEarningsAdd(ctx, type, amount, dateInput);
+  const parsed = finalEarningsParseDate(dateInput || finalEarningsToday());
+  if (parsed && Number.isInteger(amount) && amount > 0 && ["glovo","bolt","ipost","bolttr"].includes(type)) {
+    await v3AddRecord({ userId: ctx.from.id, name: getTelegramDisplayName(ctx), type, amount, dateKey: finalEarningsISODate(parsed), createdBy: ctx.from.id });
+  }
+};
+
+const v3OriginalEarningsAddExtra = finalEarningsAddExtra;
+finalEarningsAddExtra = async function(ctx, type, amount, dateInput) {
+  await v3OriginalEarningsAddExtra(ctx, type, amount, dateInput);
+  const parsed = finalEarningsParseDate(dateInput || finalEarningsToday());
+  if (parsed && Number.isInteger(amount) && amount > 0 && ["personal","floors","quests"].includes(type)) {
+    await v3AddRecord({ userId: ctx.from.id, name: getTelegramDisplayName(ctx), type, amount, dateKey: finalEarningsISODate(parsed), createdBy: ctx.from.id });
+  }
+};
+
+// Быстрый ввод нескольких показателей: Г 500 Б 300 А 200.
+bot.hears(/^(?:(?:г|б|а)\s+\d+\s*){2,}$/i, async ctx => {
+  const parts = String(ctx.message.text || "").trim().split(/\s+/);
+  if (parts.length % 2 !== 0) return;
+  const rows = [];
+  for (let i = 0; i < parts.length; i += 2) {
+    const type = parts[i].toLowerCase() === "г" ? "glovo" : parts[i].toLowerCase() === "б" ? "bolt" : "ipost";
+    const amount = finalEarningsAmount(parts[i + 1]);
+    if (!Number.isInteger(amount) || amount <= 0) {
+      await ctx.reply("❌ Проверь суммы. Пример: Г 500 Б 300 А 200");
+      return;
+    }
+    rows.push({ type, amount });
+  }
+  for (const row of rows) await finalEarningsAdd(ctx, row.type, row.amount, finalEarningsToday());
+  await ctx.reply("✅ Быстрый ввод завершён: " + rows.length + " операций.");
+});
+
+// Дневная цель. Повторная команда меняет цель на новое значение.
+bot.hears(/^цель\s+(\d+)$/i, async ctx => {
+  const target = Number(ctx.match[1]);
+  if (!Number.isInteger(target) || target <= 0) {
+    await ctx.reply("Укажи цель целым числом больше 0. Пример: Цель 2000");
+    return;
+  }
+  const state = await v3LoadEarningsState();
+  const userId = String(ctx.from.id);
+  const dateKey = v3DateISO(finalEarningsToday());
+  state.users[userId] = state.users[userId] || {};
+  state.users[userId].name = getTelegramDisplayName(ctx);
+  state.goals.day[userId] = { dateKey, target, setAt: new Date().toISOString() };
+  if (ctx.chat?.id && !state.goalReportChatIds.includes(ctx.chat.id)) state.goalReportChatIds.push(ctx.chat.id);
+  state.goalReportChatId = ctx.chat?.id || state.goalReportChatId || null;
+  await finalEarningsSave(state);
+  await ctx.reply("🎯 Дневная цель установлена\n\n👤 " + getTelegramDisplayName(ctx) + "\n💰 " + target + " грн");
+});
+
+async function v3BuildDailyProgress(dateKey) {
+  const state = await v3LoadEarningsState();
+  const lines = [];
+  for (const [userId, goal] of Object.entries(state.goals.day || {})) {
+    if (!goal || goal.dateKey !== dateKey || !(Number(goal.target) > 0)) continue;
+    const report = await finalEarningsReport(userId, dateKey);
+    const percent = Math.round(report.total / Number(goal.target) * 100);
+    lines.push({ name: report.name || state.users?.[userId]?.name || "Курьер", total: report.total, target: Number(goal.target), percent });
+  }
+  lines.sort((a,b) => b.percent - a.percent || b.total - a.total);
+  return lines;
+}
+
+async function v3SendProgress(isFinal = false) {
+  const state = await v3LoadEarningsState();
+  const dateKey = v3DateISO(finalEarningsToday());
+  const marker = isFinal ? "final:" + dateKey : "progress:" + dateKey + ":" + new Intl.DateTimeFormat("en-GB",{timeZone:TIMEZONE,hour:"2-digit",hour12:false}).format(new Date());
+  if (state.v3Sent[marker]) return;
+  const rows = await v3BuildDailyProgress(dateKey);
+  if (!rows.length) return;
+  const body = rows.map((x,i) => (i+1) + ". " + x.name + " — " + x.total + "/" + x.target + " грн (" + x.percent + "%)" + (x.percent >= 100 ? " 🏆" : "")).join("\n");
+  const message = (isFinal ? "📊 ИТОГ ДНЕВНЫХ ЦЕЛЕЙ" : "🎯 ПРОГРЕСС ДНЕВНЫХ ЦЕЛЕЙ") + "\n━━━━━━━━━━━━━━\n📅 " + finalEarningsDotDate(finalEarningsParseDate(dateKey)) + "\n\n" + body;
+  const chats = [...new Set([...(state.goalReportChatIds || []), state.goalReportChatId].filter(Boolean))];
+  for (const chatId of chats) {
+    try { await bot.telegram.sendMessage(chatId, message); }
+    catch (error) { console.error("V3 progress send failed:", chatId, error.message); }
+  }
+  state.v3Sent[marker] = true;
+  await finalEarningsSave(state);
+}
+
+let v3DailyTimerStarted = false;
+function v3StartDailyTimer() {
+  if (v3DailyTimerStarted) return;
+  v3DailyTimerStarted = true;
+  setInterval(async () => {
+    try {
+      const parts = new Intl.DateTimeFormat("en-GB",{timeZone:TIMEZONE,weekday:"short",hour:"2-digit",minute:"2-digit",hour12:false}).formatToParts(new Date());
+      const get = type => parts.find(x => x.type === type)?.value;
+      const hour = Number(get("hour"));
+      const minute = get("minute");
+      if (minute !== "00" && minute !== "59") return;
+      if (minute === "00" && hour >= 7 && hour <= 22 && (hour - 7) % 3 === 0) await v3SendProgress(false);
+      if (minute === "59" && hour === 23) await v3SendProgress(true);
+    } catch (error) { console.error("V3 daily timer:", error); }
+  }, 20000);
+}
+v3StartDailyTimer();
+
+// Формат: Запись (имя) [ДД.ММ.ГГГГ]. Только администратор.
+bot.hears(/^запись\s*\((.+?)\)(?:\s+(\d{2}[./]\d{2}[./]\d{4}))?$/i, async ctx => {
+  if (!isAdmin(ctx)) return ctx.reply("Нет доступа ❌");
+  const name = ctx.match[1].trim();
+  const dateKey = v3DateISO(ctx.match[2] || finalEarningsToday());
+  const state = await v3LoadEarningsState();
+  const user = Object.entries(state.users || {}).find(([id,u]) => String(u?.name || "").trim().toLowerCase() === name.toLowerCase());
+  if (!user) return ctx.reply("❌ Курьер не найден: " + name);
+  const [userId] = user;
+  const rows = (state.records || []).filter(r => r.userId === String(userId) && r.dateKey === dateKey && !r.canceledAt);
+  if (!rows.length) return ctx.reply("📒 Записей " + name + " за " + finalEarningsDotDate(finalEarningsParseDate(dateKey)) + " нет.\nСтарые суммы, внесённые до версии 3.0, не имеют разбивки по отдельным операциям.");
+  const labels = { glovo:"Glovo", bolt:"Bolt", ipost:"iPOST", bolttr:"Bolt TR", personal:"Личные доставки", floors:"Этажи", quests:"Квесты", tea:"Чай" };
+  const total = rows.reduce((sum,r) => sum + r.amount, 0);
+  const lines = rows.map((r,i) => (i+1) + ". " + (labels[r.type] || r.type) + " — " + r.amount + " грн");
+  await ctx.reply("📒 ЗАПИСИ — " + name + "\n📅 " + finalEarningsDotDate(finalEarningsParseDate(dateKey)) + "\n━━━━━━━━━━━━━━\n" + lines.join("\n") + "\n━━━━━━━━━━━━━━\n💰 Всего по новым записям: " + total + " грн");
+});
+
+// Отмена (имя) 2 — отменяет запись №2; без номера отменяет последнюю активную.
+bot.hears(/^отмена\s*\((.+?)\)(?:\s+(\d+))?$/i, async ctx => {
+  if (!isAdmin(ctx)) return ctx.reply("Нет доступа ❌");
+  const name = ctx.match[1].trim();
+  const requested = ctx.match[2] ? Number(ctx.match[2]) : null;
+  const state = await v3LoadEarningsState();
+  const user = Object.entries(state.users || {}).find(([id,u]) => String(u?.name || "").trim().toLowerCase() === name.toLowerCase());
+  if (!user) return ctx.reply("❌ Курьер не найден: " + name);
+  const [userId] = user;
+  const today = v3DateISO(finalEarningsToday());
+  const rows = (state.records || []).filter(r => r.userId === String(userId) && r.dateKey === today && !r.canceledAt);
+  if (!rows.length) return ctx.reply("❌ Нет активных записей за сегодня.");
+  const index = requested ? requested - 1 : rows.length - 1;
+  if (!Number.isInteger(index) || index < 0 || index >= rows.length) return ctx.reply("❌ Такой записи нет. Используй «Запись (" + name + ")» для списка.");
+  const record = rows[index];
+  const date = finalEarningsParseDate(record.dateKey);
+  if (record.type === "tea") {
+    const tips = await loadTipsState();
+    await ensureTipsDay(tips);
+    const dateISO = record.dateKey;
+    if (tips.currentDate === dateISO && tips.today?.[userId]) tips.today[userId].amount = Math.max(0, (Number(tips.today[userId].amount)||0) - record.amount);
+    else {
+      const archived = (tips.archive || []).find(d => v3DateISO(d.date) === dateISO);
+      if (archived?.tips?.[userId]) archived.tips[userId].amount = Math.max(0, (Number(archived.tips[userId].amount)||0) - record.amount);
+    }
+    await saveTipsState(tips);
+  } else {
+    const earnings = await finalEarningsLoad();
+    const day = finalEarningsFindDay(earnings, record.dateKey) || finalEarningsFindDay(earnings, finalEarningsSlashDate(date));
+    if (!day?.[userId]) return ctx.reply("❌ Не удалось найти сумму для отмены. Запись оставлена без изменений.");
+    day[userId][record.type] = Math.max(0, (Number(day[userId][record.type]) || 0) - record.amount);
+    await finalEarningsSave(earnings);
+  }
+  record.canceledAt = new Date().toISOString();
+  record.canceledBy = String(ctx.from.id);
+  state.audit.push({ at: record.canceledAt, action:"cancel", recordId:record.id, userId:String(userId), name, type:record.type, amount:record.amount, by:String(ctx.from.id) });
+  await finalEarningsSave(state);
+  await ctx.reply("✅ Запись отменена\n\n👤 " + name + "\n№" + (index+1) + " — " + record.amount + " грн");
+});
+
+bot.hears(/^(?:аист|история)$/i, async ctx => {
+  const state = await v3LoadEarningsState();
+  const rows = (state.audit || []).slice(-15).reverse();
+  if (!rows.length) return ctx.reply("История пока пуста.");
+  const lines = rows.map(x => {
+    const action = x.action === "cancel" ? "❌ отмена" : "➕ добавление";
+    return action + " — " + (x.name || x.userId) + ": " + x.amount + " грн (" + x.type + ")\n" + new Date(x.at).toLocaleString("ru-RU",{timeZone:TIMEZONE});
+  });
+  await ctx.reply("📜 ИСТОРИЯ ИЗМЕНЕНИЙ\n━━━━━━━━━━━━━━\n" + lines.join("\n\n"));
+});
+
+// Личный календарь: Календарь или Календарь 2026.10.
+async function v3Calendar(ctx, monthInput) {
+  const match = String(monthInput || "").match(/^(\d{4})[.-](\d{2})$/);
+  const now = finalEarningsParseDate(finalEarningsToday());
+  const year = match ? Number(match[1]) : now.getUTCFullYear();
+  const month = match ? Number(match[2]) : now.getUTCMonth()+1;
+  if (month < 1 || month > 12) return ctx.reply("❌ Формат: Календарь 2026.10");
+  const userId = String(ctx.from.id);
+  const daysInMonth = new Date(Date.UTC(year,month,0)).getUTCDate();
+  const lines = [];
+  let total = 0, workdays = 0;
+  for (let d=1; d<=daysInMonth; d++) {
+    const key = year + "-" + String(month).padStart(2,"0") + "-" + String(d).padStart(2,"0");
+    const report = await finalEarningsReport(userId,key);
+    if (report.total > 0) { total += report.total; workdays++; }
+    lines.push(String(d).padStart(2,"0") + " — " + report.total + " грн" + (report.total > 0 ? " 🟢" : ""));
+  }
+  await ctx.reply("🗓 КАЛЕНДАРЬ ЗАРАБОТКА\n" + String(month).padStart(2,"0") + "." + year + "\n━━━━━━━━━━━━━━\n" + lines.join("\n") + "\n━━━━━━━━━━━━━━\n💰 Итого: " + total + " грн\n📅 Рабочих дней: " + workdays + "\n📊 Среднее за рабочий день: " + (workdays ? Math.round(total/workdays) : 0) + " грн");
+}
+bot.hears(/^календарь(?:\s+(\d{4}[.-]\d{2}))?$/i, async ctx => v3Calendar(ctx,ctx.match[1]));
+
+// Исторический формат: Мой месяц 2026.10
+bot.hears(/^мой месяц\s+(\d{4})[.-](\d{2})$/i, async ctx => {
+  const key = ctx.match[1] + "-" + ctx.match[2];
+  if (Number(ctx.match[2]) < 1 || Number(ctx.match[2]) > 12) return ctx.reply("❌ Неверный месяц. Пример: Мой месяц 2026.10");
+  await finalEarningsShowPeriodKey(ctx,"month",key,"mine");
+});
+
+// Сравнение: Сравнить 2026.10-2026.11
+bot.hears(/^сравнить\s+(\d{4})[.-](\d{2})\s*-\s*(\d{4})[.-](\d{2})$/i, async ctx => {
+  const a = ctx.match[1] + "-" + ctx.match[2];
+  const b = ctx.match[3] + "-" + ctx.match[4];
+  if ([Number(ctx.match[2]),Number(ctx.match[4])].some(x=>x<1||x>12)) return ctx.reply("❌ Формат: Сравнить 2026.10-2026.11");
+  const userId = String(ctx.from.id);
+  const x = await finalEarningsPeriodEntriesForKey("month",a,await finalEarningsLoad());
+  const y = await finalEarningsPeriodEntriesForKey("month",b,await finalEarningsLoad());
+  const get = rows => rows.find(r=>String(r.userId)===userId) || {total:0,tea:0,floors:0};
+  const left = get(x), right = get(y);
+  const workdays = async key => {
+    const state = await finalEarningsLoad();
+    let count=0;
+    for (const [date,day] of Object.entries(state.days||{})) {
+      const parsed=finalEarningsParseDate(date);
+      if (parsed && finalEarningsMonthKey(parsed)===key && (Number(day?.[userId]?.glovo)||0)+(Number(day?.[userId]?.bolt)||0)+(Number(day?.[userId]?.ipost)||Number(day?.[userId]?.iposr)||0)+(Number(day?.[userId]?.bolttr)||0)+(Number(day?.[userId]?.personal)||0)+(Number(day?.[userId]?.floors)||0)+(Number(day?.[userId]?.quests)||0)>0) count++;
+    }
+    return count;
+  };
+  const wa=await workdays(a), wb=await workdays(b);
+  await ctx.reply("📊 СРАВНЕНИЕ МЕСЯЦЕВ\n━━━━━━━━━━━━━━\n" + a + ":\n💰 " + left.total + " грн\n☕ Чай: " + left.tea + " грн\n🏢 Этажи: " + left.floors + " грн\n📅 Рабочих дней: " + wa + "\n📈 Среднее/рабочий день: " + (wa?Math.round(left.total/wa):0) + " грн\n\n" + b + ":\n💰 " + right.total + " грн\n☕ Чай: " + right.tea + " грн\n🏢 Этажи: " + right.floors + " грн\n📅 Рабочих дней: " + wb + "\n📈 Среднее/рабочий день: " + (wb?Math.round(right.total/wb):0) + " грн\n\nРазница: " + (right.total-left.total) + " грн");
+});
+
+// Средний заработок за рабочий день в текущих недельных/месячных отчётах.
+async function v3AverageForPeriod(userId, period, key) {
+  const state = await finalEarningsLoad();
+  const days = new Set();
+  for (const [date,day] of Object.entries(state.days||{})) {
+    const parsed=finalEarningsParseDate(date);
+    if (!parsed) continue;
+    const pkey=period==="week"?finalEarningsWeekKey(parsed):finalEarningsMonthKey(parsed);
+    const item=day?.[String(userId)]||{};
+    const sum=(Number(item.glovo)||0)+(Number(item.bolt)||0)+(Number(item.ipost)||Number(item.iposr)||0)+(Number(item.bolttr)||0)+(Number(item.personal)||0)+(Number(item.floors)||0)+(Number(item.quests)||0);
+    if(pkey===key && sum>0) days.add(finalEarningsISODate(parsed));
+  }
+  const data=await finalEarningsPeriodEntriesForKey(period,key,state);
+  const mine=data.find(x=>String(x.userId)===String(userId));
+  const total=(mine?.total)||0;
+  return {days:days.size,average:days.size?Math.round(total/days.size):0};
+}
