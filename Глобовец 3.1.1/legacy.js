@@ -9827,7 +9827,6 @@ async function v3Calendar(ctx, monthInput) {
   const png=Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk("IHDR",ihdr),chunk("IDAT",__globovetsZlib.deflateSync(raw)),chunk("IEND",Buffer.alloc(0))]);
   const caption="🗓 Календарь заработка "+String(month).padStart(2,"0")+"."+year+"\n💰 Итого: "+total+" грн | 📅 Рабочих дней: "+workdays+" | 📊 Среднее: "+(workdays?Math.round(total/workdays):0)+" грн";
   await ctx.replyWithPhoto({source:png},{caption});
-  await ctx.reply("📋 ПОДРОБНО ПО ДНЯМ — "+String(month).padStart(2,"0")+"."+year+"\n"+details.join("\n"));
 }
 bot.hears(/^календарь(?:\s+(\d{4}[.-]\d{2}))?$/i, async ctx => v3Calendar(ctx,ctx.match[1]));
 
