@@ -10406,8 +10406,8 @@ async function v3AchievementBuildSnapshot() {
     for (const [iso,row] of Object.entries(user.days)) {
       const date=finalEarningsParseDate(iso);
       if (!date) continue;
-      if (finalEarningsWeekKey(date)===weekKey) weekTotal+=row.total;
-      if (finalEarningsMonthKey(date)===monthKey) {monthTotal+=row.total;monthTea+=row.tea;}
+      if (finalEarningsWeekKey(date)===weekKey) weekTotal+=row.earnings;
+      if (finalEarningsMonthKey(date)===monthKey) {monthTotal+=row.earnings;monthTea+=row.tea;}
     }
     monthTotals[id]={total:monthTotal,tea:monthTea};
     user.weekTotal=weekTotal;
@@ -10549,7 +10549,7 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
     if(priorTotal>0 && user.monthTotal<=priorTotal*0.5) await secretAward("obval",monthKey);
     if(priorTotal>0 && user.monthTotal>=priorTotal*2) await secretAward("podem_s_kolen",monthKey);
     if(user.monthWorkdays===user.daysInMonth) {
-      const everyWorkdayHasGoal=workRows.filter(([d])=>d.startsWith(monthKey+"-")).every(([d])=>Number(user.dailyGoalHistory?.[d]?.target)>0 && Number(user.dailyGoalHistory?.[d]?.completed)>=Number(user.dailyGoalHistory?.[d]?.target));
+      const everyWorkdayHasGoal=workRows.filter(([d])=>d.startsWith(monthKey+"-")).every(([d,row])=>Number(user.dailyGoalHistory?.[d]?.target)>0 && row.total>=Number(user.dailyGoalHistory[d].target));
       if(everyWorkdayHasGoal) await secretAward("kazhdyi_den_kak_nado",monthKey);
     }
   }
@@ -10562,13 +10562,15 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
     if(rising>=5) await secretAward("luchshe_sebya_vchera",dayKey);
   }
   if(user.workStreak>=365) await secretAward("vyebannyi_zhiznyu","all");
-  if(user.workDates.length>=1) {
-    const lastWork=user.workDates[user.workDates.length-1];
-    const gap=Math.round((Date.parse(dayKey+"T00:00:00Z")-Date.parse(lastWork+"T00:00:00Z"))/86400000);
-    if(gap>=7 && daily>0) await secretAward("vernulsya",dayKey);
+  {
+    const priorWorks=user.workDates.filter(d=>d<dayKey);
+    const lastPrior=priorWorks[priorWorks.length-1];
+    const gap=lastPrior?Math.round((Date.parse(dayKey+"T00:00:00Z")-Date.parse(lastPrior+"T00:00:00Z"))/86400000):0;
+    if(lastPrior && daily>0 && gap>=8) await secretAward("vernulsya",dayKey);
+    if(lastPrior && !user.days[dayKey]?.earnings && gap>=7) await secretAward("lentyay",dayKey);
   }
   if(user.todayGoal>0 && daily>=user.todayGoal && Number(dayKey.slice(8,10))<18) await secretAward("utrenniy_yobar",dayKey);
-  if(user.todayGoal>0 && daily>=user.todayGoal && !user.dailyGoalHistory?.[dayKey]?.target) await secretAward("bez_plana",dayKey);
+  if(daily>0 && !Number(user.dailyGoalHistory?.[dayKey]?.target)) await secretAward("bez_plana",dayKey);
   if(user.weekTotal>0) {
     const sorted=[...snapshot.users.values()].map(x=>({id:x.userId,total:x.weekTotal||0})).sort((a,b)=>b.total-a.total);
     if(sorted[0]?.id!==String(userId) && sorted[0]?.total-(user.weekTotal||0)<500 && sorted[0]?.total>(user.weekTotal||0)) await secretAward("dyhanie_v_spinu",weekKey);
@@ -10586,7 +10588,8 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
 }
 
 async function v3CheckAchievements(userId) {
-  await v3EvaluateAllAchievements();
+  // Все проверки дневных итогов выполняются централизованно в 23:59 по Киеву.
+  // Награда не выдаётся по промежуточной сумме в течение дня.
 }
 
 async function v3EvaluateAllAchievements() {
