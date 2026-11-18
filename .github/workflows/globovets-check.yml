@@ -7,6 +7,7 @@ on:
       - 'legacy.js'
       - 'MotoConnect/index.js'
       - 'MotoConnect/legacy.js'
+      - 'Глобовец 18.11.2026/**'
       - '.github/workflows/globovets-check.yml'
   push:
     branches:
@@ -27,3 +28,4 @@ jobs:
           node --check legacy.js
           node --check MotoConnect/index.js
           node --check MotoConnect/legacy.js
+          npm --prefix 'Глобовец 18.11.2026' run check
