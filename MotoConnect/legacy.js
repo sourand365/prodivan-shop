@@ -1,3 +1,19 @@
+// Запоминаем рабочую группу до обработки команд — это нужно для объявлений и напоминаний.
+bot.use(async (ctx, next) => {
+  try {
+    if (ctx?.chat && (ctx.chat.type === "group" || ctx.chat.type === "supergroup")) {
+      const old = await db.collection("courier-session-booking").findOne({ key: "main" });
+      const data = { ...(old?.data || {}), lastGroupChatId: ctx.chat.id, lastGroupChatTitle: ctx.chat.title || "", updatedAt: new Date().toISOString() };
+      await db.collection("courier-session-booking").updateOne(
+        { key: "main" },
+        { $set: { key: "main", data, updatedAt: new Date() } },
+        { upsert: true }
+      );
+    }
+  } catch (error) { console.error("Ошибка сохранения основного группового чата:", error.message); }
+  return next();
+});
+
 // ============================================================
 // TELEGRAM БОТ ДЛЯ КУРЬЕРОВ — NxCreate
 // ПОЛНАЯ ВЕРСИЯ
@@ -4013,10 +4029,7 @@ async function checkSessionBookingNotification() {
     console.error("Ошибка автоматических напоминаний:", error.message);
   }
 }
-bot.use(async (ctx, next) => {
-  await rememberLastGroupForSessions(ctx);
-  return next();
-});
+// Групповой чат уже запоминается ранним middleware в начале файла.
 setInterval(checkSessionBookingNotification, 15 * 1000);
 setTimeout(checkSessionBookingNotification, 5000);
 
@@ -9738,7 +9751,7 @@ bot.hears(/^(?:аист|история)$/i, async ctx => {
 
 // Рисуем PNG календаря без нативных модулей и внешних зависимостей.
 async function v3Calendar(ctx, monthInput) {
-  const match=String(monthInput||"").match(/^(\\d{4})[.-](\\d{2})$/),now=finalEarningsParseDate(finalEarningsToday());
+  const match=String(monthInput||"").match(/^(\d{4})[.-](\d{2})$/),now=finalEarningsParseDate(finalEarningsToday());
   const year=match?Number(match[1]):now.getUTCFullYear(),month=match?Number(match[2]):now.getUTCMonth()+1;
   if(month<1||month>12)return ctx.reply("❌ Формат: Календарь 2026.10");
   const userId=String(ctx.from.id),daysInMonth=new Date(Date.UTC(year,month,0)).getUTCDate(),daily=[];
@@ -9748,7 +9761,7 @@ async function v3Calendar(ctx, monthInput) {
     const report=await finalEarningsReport(userId,key),amount=Math.max(0,Math.round(Number(report.total)||0));
     daily.push(amount);if(amount>0){total+=amount;workdays++;}
   }
-  const width=840,height=900,pixels=Buffer.alloc(width*height*4);
+  const width=840,height=960,pixels=Buffer.alloc(width*height*4);
   const C={bg:[15,23,42,255],empty:[38,50,68,255],earned:[20,91,70,255],panel:[30,41,59,255],accent:[250,204,21,255],white:[248,250,252,255],muted:[148,163,184,255],line:[71,85,105,255]};
   function rect(x,y,w,h,c){for(let yy=Math.max(0,y);yy<Math.min(height,y+h);yy++)for(let xx=Math.max(0,x);xx<Math.min(width,x+w);xx++){const p=(yy*width+xx)*4;pixels[p]=c[0];pixels[p+1]=c[1];pixels[p+2]=c[2];pixels[p+3]=c[3];}}
   const F={"0":[14,17,19,21,25,17,14],"1":[4,12,4,4,4,4,14],"2":[14,17,1,2,4,8,31],"3":[30,1,1,14,1,17,14],"4":[2,6,10,18,31,2,2],"5":[31,16,16,30,1,17,14],"6":[6,8,16,30,17,17,14],"7":[31,1,2,4,8,8,8],"8":[14,17,17,14,17,17,14],"9":[14,17,17,15,1,2,12],"A":[14,17,17,31,17,17,17],"B":[30,17,17,30,17,17,30],"C":[14,17,16,16,16,17,14],"D":[28,18,17,17,17,18,28],"E":[31,16,16,30,16,16,31],"F":[31,16,16,30,16,16,16],"G":[14,17,16,23,17,17,15],"H":[17,17,17,31,17,17,17],"I":[14,4,4,4,4,4,14],"J":[7,2,2,2,2,18,12],"K":[17,18,20,24,20,18,17],"L":[16,16,16,16,16,16,31],"M":[17,27,21,21,17,17,17],"N":[17,25,21,19,17,17,17],"O":[14,17,17,17,17,17,14],"P":[30,17,17,30,16,16,16],"Q":[14,17,17,17,21,18,13],"R":[30,17,17,30,20,18,17],"S":[15,16,16,14,1,1,30],"T":[31,4,4,4,4,4,4],"U":[17,17,17,17,17,17,14],"V":[17,17,17,17,17,10,4],"W":[17,17,17,21,21,21,10],"X":[17,17,10,4,10,17,17],"Y":[17,17,10,4,4,4,4],"Z":[31,1,2,4,8,16,31],".":[0,0,0,0,0,12,12],":":[0,12,12,0,12,12,0],"-":[0,0,0,31,0,0,0],"/":[1,2,2,4,8,8,16]," ":[0,0,0,0,0,0,0]};
@@ -9764,7 +9777,7 @@ async function v3Calendar(ctx, monthInput) {
   const raw=Buffer.alloc((width*4+1)*height);for(let y=0;y<height;y++){const o=y*(width*4+1);raw[o]=0;pixels.copy(raw,o+1,y*width*4,(y+1)*width*4);}
   const ihdr=Buffer.alloc(13);ihdr.writeUInt32BE(width,0);ihdr.writeUInt32BE(height,4);ihdr[8]=8;ihdr[9]=6;
   const png=Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk("IHDR",ihdr),chunk("IDAT",__globovetsZlib.deflateSync(raw)),chunk("IEND",Buffer.alloc(0))]);
-  const caption="🗓 Календарь заработка "+String(month).padStart(2,"0")+"."+year+"\\n💰 Итого: "+total+" грн | 📅 Рабочих дней: "+workdays+" | 📊 Среднее: "+(workdays?Math.round(total/workdays):0)+" грн";
+  const caption="🗓 Календарь заработка "+String(month).padStart(2,"0")+"."+year+"\n💰 Итого: "+total+" грн | 📅 Рабочих дней: "+workdays+" | 📊 Среднее: "+(workdays?Math.round(total/workdays):0)+" грн";
   await ctx.replyWithPhoto({source:png},{caption});
 }
 bot.hears(/^календарь(?:\s+(\d{4}[.-]\d{2}))?$/i, async ctx => v3Calendar(ctx,ctx.match[1]));
@@ -10062,9 +10075,9 @@ async function v3EvaluateAllAchievements() {
   }
   for(const item of newAwards){
     const meta=v3AchievementGetMeta(item.achievementId);
-    const message = "🏆 НОВОЕ ДОСТИЖЕНИЕ!\\n\\n🔥 " + (item.name || "Курьер") +
-      " получил: «" + (meta?.name || item.achievementId) + "»\\n" +
-      (meta?.description || "Так держать!") + "\\n\\n💪 Глобовец видит ваши старания!";
+    const message = "🏆 НОВОЕ ДОСТИЖЕНИЕ!\n\n🔥 " + (item.name || "Курьер") +
+      " получил: «" + (meta?.name || item.achievementId) + "»\n" +
+      (meta?.description || "Так держать!") + "\n\n💪 Глобовец видит ваши старания!";
     try { await bot.telegram.sendMessage(groupChatId,message); }
     catch(error){console.error("V3 achievement group notification:",groupChatId,error.message);}
   }
