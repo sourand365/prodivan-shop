@@ -6932,6 +6932,8 @@ async function finalEarningsShowDay(
       await finalEarningsBuildDay(
         dateKey
       );
+    const dailyGoalState = await v3LoadEarningsState();
+    const goalDateKey = v3DateISO(dateKey);
 
     let text =
       "🏆 ТОП ДЕНЬ\n" +
@@ -6957,7 +6959,11 @@ async function finalEarningsShowDay(
           `👤 ${item.personal} | ` +
           `☕ ${item.tea}\n` +
           `🏢 Этажи — ${item.floors} грн\n` +
-          `💰 Итого: ${item.total} грн\n`;
+          `💰 Итого: ${item.total} грн\\n`;
+        const goal = dailyGoalState.goals.day[String(item.userId)];
+        if (goal?.dateKey === goalDateKey) {
+          text += "🎯 Цель дня: " + goal.target + " грн (" + Math.round(item.total / goal.target * 100) + "%)\\n";
+        }
       }
     }
 
@@ -9754,7 +9760,12 @@ bot.hears(/^сравнить\s+(\d{4})[.-](\d{2})\s*-\s*(\d{4})[.-](\d{2})$/i, a
     let count=0;
     for (const [date,day] of Object.entries(state.days||{})) {
       const parsed=finalEarningsParseDate(date);
-      if (parsed && finalEarningsMonthKey(parsed)===key && (Number(day?.[userId]?.glovo)||0)+(Number(day?.[userId]?.bolt)||0)+(Number(day?.[userId]?.ipost)||Number(day?.[userId]?.iposr)||0)+(Number(day?.[userId]?.bolttr)||0)+(Number(day?.[userId]?.personal)||0)+(Number(day?.[userId]?.floors)||0)+(Number(day?.[userId]?.quests)||0)>0) count++;
+      if (parsed && finalEarningsMonthKey(parsed)===key) {
+        const item = day?.[userId] || {};
+        let worked = (Number(item.glovo)||0)+(Number(item.bolt)||0)+(Number(item.ipost)||Number(item.iposr)||0)+(Number(item.bolttr)||0)+(Number(item.personal)||0)+(Number(item.floors)||0)+(Number(item.quests)||0)>0;
+        if (!worked) { const tea = await finalEarningsTeaForDate(date); worked = Number(tea?.[userId]?.amount) > 0; }
+        if (worked) count++;
+      }
     }
     return count;
   };
