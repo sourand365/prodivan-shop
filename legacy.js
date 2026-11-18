@@ -1603,6 +1603,11 @@ bot.hears(
         (Number(item.amount) || 0) + amount;
 
       await saveTipsState(state);
+      await v3AddRecord({
+        userId, name, type: "tea", amount,
+        dateKey: v3DateISO(finalEarningsToday()),
+        createdBy: userId
+      });
 
       // Сохраняем прежнее подтверждение добавления чаевых.
       await ctx.reply(
@@ -6776,6 +6781,11 @@ bot.hears(
           ),
           finalEarningsToday()
         );
+      const dailyGoalState = await v3LoadEarningsState();
+      const dailyGoal = dailyGoalState.goals.day[String(ctx.from.id)];
+      const dailyGoalLine = dailyGoal?.dateKey === v3DateISO(finalEarningsToday())
+        ? "\n🎯 Цель дня — " + dailyGoal.target + " грн (" + Math.round(report.total / dailyGoal.target * 100) + "%)"
+        : "";
 
       await ctx.reply(
 
@@ -6798,7 +6808,7 @@ bot.hears(
 
         "━━━━━━━━━━━━━━\n" +
 
-        `💰 ИТОГО — ${report.total} грн`
+        `💰 ИТОГО — ${report.total} грн${dailyGoalLine}`
       );
 
     } catch (error) {
@@ -6922,6 +6932,8 @@ async function finalEarningsShowDay(
       await finalEarningsBuildDay(
         dateKey
       );
+    const dailyGoalState = await v3LoadEarningsState();
+    const goalDateKey = v3DateISO(dateKey);
 
     let text =
       "🏆 ТОП ДЕНЬ\n" +
@@ -6947,7 +6959,11 @@ async function finalEarningsShowDay(
           `👤 ${item.personal} | ` +
           `☕ ${item.tea}\n` +
           `🏢 Этажи — ${item.floors} грн\n` +
-          `💰 Итого: ${item.total} грн\n\n`;
+          `💰 Итого: ${item.total} грн\\n`;
+        const goal = dailyGoalState.goals.day[String(item.userId)];
+        if (goal?.dateKey === goalDateKey) {
+          text += "🎯 Цель дня: " + goal.target + " грн (" + Math.round(item.total / goal.target * 100) + "%)\\n";
+        }
       }
     }
 
@@ -7780,6 +7796,8 @@ async function finalEarningsShowPeriod(
           } не установлена`;
       }
 
+      const average = await v3AverageForPeriod(userId, period, data.currentKey);
+      text += "\n📊 Среднее за рабочий день — " + average.average + " грн (" + average.days + " дн.)";
       await ctx.reply(
         text
       );
@@ -7841,6 +7859,8 @@ async function finalEarningsShowPeriod(
 
           text +=
             `💰 Итого: ${item.total} грн\n`;
+          const average = await v3AverageForPeriod(item.userId, period, data.currentKey);
+          text += `📊 Среднее/рабочий день: ${average.average} грн (${average.days} дн.)\n`;
 
           if (
             target > 0
@@ -8050,6 +8070,8 @@ async function finalEarningsShowPeriodKey(ctx, period, key, mode) {
       `🏢 Этажи — ${mine.floors} грн\n` +
       `🎯 Квесты — ${mine.quests} грн\n\n` +
       `💰 ИТОГО — ${mine.total} грн`;
+          const average = await v3AverageForPeriod(userId, period, key);
+          text += `\n📊 Среднее за рабочий день — ${average.average} грн (${average.days} дн.)`;
 
   } else if (!data.length) {
 
@@ -8910,6 +8932,16 @@ bot.command(
         state
       );
 
+      const historyState = await v3LoadEarningsState();
+      const resetDateKey = v3DateISO(dateKey);
+      for (const record of historyState.records || []) {
+        if (record.userId === String(userId) && record.dateKey === resetDateKey && !record.canceledAt && record.type !== "tea") {
+          record.canceledAt = new Date().toISOString();
+          record.canceledBy = String(ctx.from.id);
+          historyState.audit.push({ at: record.canceledAt, action: "reset", recordId: record.id, userId: String(userId), name, type: record.type, amount: record.amount, by: String(ctx.from.id) });
+        }
+      }
+      await finalEarningsSave(historyState);
 
       await ctx.reply(
 
@@ -9452,15 +9484,15 @@ const MEME_STICKERS = {
 // ОБРАБОТКА МЕМОВ
 // ============================================================
 
-bot.on("text", async ctx => {
+bot.on("text", async (ctx, next) => {
   try {
     const text = ctx.message.text?.trim().toLowerCase();
 
-    if (!text) return;
+    if (!text) return next();
 
     const stickers = MEME_STICKERS[text];
 
-    if (!stickers || stickers.length === 0) return;
+    if (!stickers || stickers.length === 0) return next();
 
     // Случайный стикер
     const randomSticker =
@@ -9470,5 +9502,667 @@ bot.on("text", async ctx => {
 
   } catch (err) {
     console.error("Ошибка отправки мем-стикера:", err);
+    return next();
+  }
+});
+
+
+// ============================================================
+// GLOBOVETS V3 EXTENSION
+// Дневные цели, общий прогресс, календарь, сравнение,
+// быстрый ввод, история и адресная отмена записей.
+// ============================================================
+
+async function v3LoadEarningsState() {
+  const state = await finalEarningsLoad();
+  if (!state.goals) state.goals = {};
+  if (!state.goals.day) state.goals.day = {};
+  if (!Array.isArray(state.records)) state.records = [];
+  if (!Array.isArray(state.audit)) state.audit = [];
+  if (!Array.isArray(state.goalReportChatIds)) state.goalReportChatIds = [];
+  if (!state.v3Sent) state.v3Sent = {};
+  if (!Array.isArray(state.achievements)) state.achievements = [];
+  if (!state.goalHistory) state.goalHistory = {};
+  if (!state.goalHistory.day) state.goalHistory.day = {};
+  if (state.achievementsEnabled === undefined) state.achievementsEnabled = true;
+  return state;
+}
+
+function v3DateISO(value) {
+  const parsed = finalEarningsParseDate(value || finalEarningsToday());
+  return parsed ? finalEarningsISODate(parsed) : null;
+}
+
+async function v3AddRecord(data) {
+  const state = await v3LoadEarningsState();
+  const record = {
+    id: "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    userId: String(data.userId),
+    name: String(data.name || state.users?.[String(data.userId)]?.name || "Курьер"),
+    type: String(data.type),
+    amount: Number(data.amount),
+    dateKey: v3DateISO(data.dateKey),
+    createdAt: new Date().toISOString(),
+    createdBy: String(data.createdBy || data.userId),
+    canceledAt: null,
+    canceledBy: null
+  };
+  if (!record.dateKey || !Number.isInteger(record.amount) || record.amount <= 0) return;
+  state.users[record.userId] = state.users[record.userId] || { name: record.name };
+          state.users[record.userId].name = record.name;
+          state.records.push(record);
+  state.audit.push({ at: record.createdAt, action: "add", recordId: record.id, userId: record.userId, name: record.name, type: record.type, amount: record.amount, by: record.createdBy });
+  if (state.records.length > 15000) state.records = state.records.slice(-15000);
+  if (state.audit.length > 15000) state.audit = state.audit.slice(-15000);
+  await finalEarningsSave(state);
+  await v3CheckAchievements(record.userId);
+}
+
+const v3OriginalEarningsAdd = finalEarningsAdd;
+finalEarningsAdd = async function(ctx, type, amount, dateInput) {
+  await v3OriginalEarningsAdd(ctx, type, amount, dateInput);
+  const parsed = finalEarningsParseDate(dateInput || finalEarningsToday());
+  if (parsed && Number.isInteger(amount) && amount > 0 && ["glovo","bolt","ipost","bolttr"].includes(type)) {
+    await v3AddRecord({ userId: ctx.from.id, name: getTelegramDisplayName(ctx), type, amount, dateKey: finalEarningsISODate(parsed), createdBy: ctx.from.id });
+  }
+};
+
+const v3OriginalEarningsAddExtra = finalEarningsAddExtra;
+finalEarningsAddExtra = async function(ctx, type, amount, dateInput) {
+  await v3OriginalEarningsAddExtra(ctx, type, amount, dateInput);
+  const parsed = finalEarningsParseDate(dateInput || finalEarningsToday());
+  if (parsed && Number.isInteger(amount) && amount > 0 && ["personal","floors","quests"].includes(type)) {
+    await v3AddRecord({ userId: ctx.from.id, name: getTelegramDisplayName(ctx), type, amount, dateKey: finalEarningsISODate(parsed), createdBy: ctx.from.id });
+  }
+};
+
+// Быстрый ввод нескольких показателей: Г 500 Б 300 А 200.
+bot.hears(/^(?:(?:г|б|а)\s+\d+\s*){2,}$/i, async ctx => {
+  const parts = String(ctx.message.text || "").trim().split(/\s+/);
+  if (parts.length % 2 !== 0) return;
+  const rows = [];
+  for (let i = 0; i < parts.length; i += 2) {
+    const type = parts[i].toLowerCase() === "г" ? "glovo" : parts[i].toLowerCase() === "б" ? "bolt" : "ipost";
+    const amount = finalEarningsAmount(parts[i + 1]);
+    if (!Number.isInteger(amount) || amount <= 0) {
+      await ctx.reply("❌ Проверь суммы. Пример: Г 500 Б 300 А 200");
+      return;
+    }
+    rows.push({ type, amount });
+  }
+  for (const row of rows) await finalEarningsAdd(ctx, row.type, row.amount, finalEarningsToday());
+  await ctx.reply("✅ Быстрый ввод завершён: " + rows.length + " операций.");
+});
+
+// Дневная цель. Повторная команда меняет цель на новое значение.
+bot.hears(/^цель\s+(\d+)$/i, async ctx => {
+  const target = Number(ctx.match[1]);
+  if (!Number.isInteger(target) || target <= 0) {
+    await ctx.reply("Укажи цель целым числом больше 0. Пример: Цель 2000");
+    return;
+  }
+  const state = await v3LoadEarningsState();
+  const userId = String(ctx.from.id);
+  const dateKey = v3DateISO(finalEarningsToday());
+  state.users[userId] = state.users[userId] || {};
+  state.users[userId].name = getTelegramDisplayName(ctx);
+  state.goals.day[userId] = { dateKey, target, setAt: new Date().toISOString() };
+  state.goalHistory.day[userId] = state.goalHistory.day[userId] || {};
+  state.goalHistory.day[userId][dateKey] = { target, setAt: new Date().toISOString() };
+  if (ctx.chat?.id && !state.goalReportChatIds.includes(ctx.chat.id)) state.goalReportChatIds.push(ctx.chat.id);
+  state.goalReportChatId = ctx.chat?.id || state.goalReportChatId || null;
+  await finalEarningsSave(state);
+  await v3CheckAchievements(userId);
+  await ctx.reply("🎯 Дневная цель установлена\n\n👤 " + getTelegramDisplayName(ctx) + "\n💰 " + target + " грн");
+});
+
+async function v3BuildDailyProgress(dateKey) {
+  const state = await v3LoadEarningsState();
+  const lines = [];
+  for (const [userId, goal] of Object.entries(state.goals.day || {})) {
+    if (!goal || goal.dateKey !== dateKey || !(Number(goal.target) > 0)) continue;
+    const report = await finalEarningsReport(userId, dateKey);
+    const percent = Math.round(report.total / Number(goal.target) * 100);
+    lines.push({ name: report.name || state.users?.[userId]?.name || "Курьер", total: report.total, target: Number(goal.target), percent });
+  }
+  lines.sort((a,b) => b.percent - a.percent || b.total - a.total);
+  return lines;
+}
+
+async function v3SendProgress(isFinal = false) {
+  const state = await v3LoadEarningsState();
+  const dateKey = v3DateISO(finalEarningsToday());
+  const marker = isFinal ? "final:" + dateKey : "progress:" + dateKey + ":" + new Intl.DateTimeFormat("en-GB",{timeZone:TIMEZONE,hour:"2-digit",hour12:false}).format(new Date());
+  if (state.v3Sent[marker]) return;
+  const rows = await v3BuildDailyProgress(dateKey);
+  if (!rows.length) return;
+  const body = rows.map((x,i) => (i+1) + ". " + x.name + " — " + x.total + "/" + x.target + " грн (" + x.percent + "%)" + (x.percent >= 100 ? " 🏆" : "")).join("\n");
+  const message = (isFinal ? "📊 ИТОГ ДНЕВНЫХ ЦЕЛЕЙ" : "🎯 ПРОГРЕСС ДНЕВНЫХ ЦЕЛЕЙ") + "\n━━━━━━━━━━━━━━\n📅 " + finalEarningsDotDate(finalEarningsParseDate(dateKey)) + "\n\n" + body;
+  const chats = [...new Set([...(state.goalReportChatIds || []), state.goalReportChatId].filter(Boolean))];
+  for (const chatId of chats) {
+    try { await bot.telegram.sendMessage(chatId, message); }
+    catch (error) { console.error("V3 progress send failed:", chatId, error.message); }
+  }
+  state.v3Sent[marker] = true;
+  await finalEarningsSave(state);
+}
+
+let v3DailyTimerStarted = false;
+function v3StartDailyTimer() {
+  if (v3DailyTimerStarted) return;
+  v3DailyTimerStarted = true;
+  setInterval(async () => {
+    try {
+      const parts = new Intl.DateTimeFormat("en-GB",{timeZone:TIMEZONE,weekday:"short",hour:"2-digit",minute:"2-digit",hour12:false}).formatToParts(new Date());
+      const get = type => parts.find(x => x.type === type)?.value;
+      const hour = Number(get("hour"));
+      const minute = get("minute");
+      if (minute !== "00" && minute !== "59") return;
+      if (minute === "00" && hour >= 7 && hour <= 22 && (hour - 7) % 3 === 0) await v3SendProgress(false);
+      if (minute === "59" && hour === 23) { await v3SendProgress(true); await v3EvaluateAllAchievements(); }
+    } catch (error) { console.error("V3 daily timer:", error); }
+  }, 20000);
+}
+v3StartDailyTimer();
+
+// Формат: Запись (имя) [ДД.ММ.ГГГГ]. Только администратор.
+bot.hears(/^запись\s*\((.+?)\)(?:\s+(\d{2}[./]\d{2}[./]\d{4}))?$/i, async ctx => {
+  if (!isAdmin(ctx)) return ctx.reply("Нет доступа ❌");
+  const name = ctx.match[1].trim();
+  const dateKey = v3DateISO(ctx.match[2] || finalEarningsToday());
+  const state = await v3LoadEarningsState();
+  const user = Object.entries(state.users || {}).find(([id,u]) => String(u?.name || "").trim().toLowerCase() === name.toLowerCase());
+  if (!user) return ctx.reply("❌ Курьер не найден: " + name);
+  const [userId] = user;
+  const rows = (state.records || []).filter(r => r.userId === String(userId) && r.dateKey === dateKey && !r.canceledAt);
+  if (!rows.length) return ctx.reply("📒 Записей " + name + " за " + finalEarningsDotDate(finalEarningsParseDate(dateKey)) + " нет.\nСтарые суммы, внесённые до версии 3.0, не имеют разбивки по отдельным операциям.");
+  const labels = { glovo:"Glovo", bolt:"Bolt", ipost:"iPOST", bolttr:"Bolt TR", personal:"Личные доставки", floors:"Этажи", quests:"Квесты", tea:"Чай" };
+  const total = rows.reduce((sum,r) => sum + r.amount, 0);
+  const lines = rows.map((r,i) => (i+1) + ". " + (labels[r.type] || r.type) + " — " + r.amount + " грн");
+  await ctx.reply("📒 ЗАПИСИ — " + name + "\n📅 " + finalEarningsDotDate(finalEarningsParseDate(dateKey)) + "\n━━━━━━━━━━━━━━\n" + lines.join("\n") + "\n━━━━━━━━━━━━━━\n💰 Всего по новым записям: " + total + " грн");
+});
+
+// Отмена (имя) 2 — отменяет запись №2; без номера отменяет последнюю активную.
+bot.hears(/^отмена\s*\((.+?)\)(?:\s+(\d+))?$/i, async ctx => {
+  if (!isAdmin(ctx)) return ctx.reply("Нет доступа ❌");
+  const name = ctx.match[1].trim();
+  const requested = ctx.match[2] ? Number(ctx.match[2]) : null;
+  const state = await v3LoadEarningsState();
+  const user = Object.entries(state.users || {}).find(([id,u]) => String(u?.name || "").trim().toLowerCase() === name.toLowerCase());
+  if (!user) return ctx.reply("❌ Курьер не найден: " + name);
+  const [userId] = user;
+  const today = v3DateISO(finalEarningsToday());
+  const rows = (state.records || []).filter(r => r.userId === String(userId) && r.dateKey === today && !r.canceledAt);
+  if (!rows.length) return ctx.reply("❌ Нет активных записей за сегодня.");
+  const index = requested ? requested - 1 : rows.length - 1;
+  if (!Number.isInteger(index) || index < 0 || index >= rows.length) return ctx.reply("❌ Такой записи нет. Используй «Запись (" + name + ")» для списка.");
+  const record = rows[index];
+  const date = finalEarningsParseDate(record.dateKey);
+  if (record.type === "tea") {
+    const tips = await loadTipsState();
+    await ensureTipsDay(tips);
+    const dateISO = record.dateKey;
+    if (tips.currentDate === dateISO && tips.today?.[userId]) tips.today[userId].amount = Math.max(0, (Number(tips.today[userId].amount)||0) - record.amount);
+    else {
+      const archived = (tips.archive || []).find(d => v3DateISO(d.date) === dateISO);
+      if (archived?.tips?.[userId]) archived.tips[userId].amount = Math.max(0, (Number(archived.tips[userId].amount)||0) - record.amount);
+    }
+    await saveTipsState(tips);
+  } else {
+    const earnings = await finalEarningsLoad();
+    const day = finalEarningsFindDay(earnings, record.dateKey) || finalEarningsFindDay(earnings, finalEarningsSlashDate(date));
+    if (!day?.[userId]) return ctx.reply("❌ Не удалось найти сумму для отмены. Запись оставлена без изменений.");
+    day[userId][record.type] = Math.max(0, (Number(day[userId][record.type]) || 0) - record.amount);
+    await finalEarningsSave(earnings);
+  }
+  const freshState = await v3LoadEarningsState();
+  const freshRecord = (freshState.records || []).find(r => r.id === record.id);
+  if (!freshRecord || freshRecord.canceledAt) return ctx.reply("❌ Эта запись уже отменена.");
+  freshRecord.canceledAt = new Date().toISOString();
+  freshRecord.canceledBy = String(ctx.from.id);
+  freshState.audit.push({ at: freshRecord.canceledAt, action:"cancel", recordId:freshRecord.id, userId:String(userId), name, type:freshRecord.type, amount:freshRecord.amount, by:String(ctx.from.id) });
+  await finalEarningsSave(freshState);
+  await ctx.reply("✅ Запись отменена\n\n👤 " + name + "\n№" + (index+1) + " — " + record.amount + " грн");
+});
+
+bot.hears(/^(?:аист|история)$/i, async ctx => {
+  const state = await v3LoadEarningsState();
+  const rows = (state.audit || []).slice(-15).reverse();
+  if (!rows.length) return ctx.reply("История пока пуста.");
+  const lines = rows.map(x => {
+    const action = x.action === "cancel" ? "❌ отмена" : "➕ добавление";
+    return action + " — " + (x.name || x.userId) + ": " + x.amount + " грн (" + x.type + ")\n" + new Date(x.at).toLocaleString("ru-RU",{timeZone:TIMEZONE});
+  });
+  await ctx.reply("📜 ИСТОРИЯ ИЗМЕНЕНИЙ\n━━━━━━━━━━━━━━\n" + lines.join("\n\n"));
+});
+
+// Личный календарь: Календарь или Календарь 2026.10.
+async function v3Calendar(ctx, monthInput) {
+  const match = String(monthInput || "").match(/^(\d{4})[.-](\d{2})$/);
+  const now = finalEarningsParseDate(finalEarningsToday());
+  const year = match ? Number(match[1]) : now.getUTCFullYear();
+  const month = match ? Number(match[2]) : now.getUTCMonth()+1;
+  if (month < 1 || month > 12) return ctx.reply("❌ Формат: Календарь 2026.10");
+  const userId = String(ctx.from.id);
+  const daysInMonth = new Date(Date.UTC(year,month,0)).getUTCDate();
+  const lines = [];
+  let total = 0, workdays = 0;
+  for (let d=1; d<=daysInMonth; d++) {
+    const key = year + "-" + String(month).padStart(2,"0") + "-" + String(d).padStart(2,"0");
+    const report = await finalEarningsReport(userId,key);
+    if (report.total > 0) { total += report.total; workdays++; }
+    lines.push(String(d).padStart(2,"0") + " — " + report.total + " грн" + (report.total > 0 ? " 🟢" : ""));
+  }
+  await ctx.reply("🗓 КАЛЕНДАРЬ ЗАРАБОТКА\n" + String(month).padStart(2,"0") + "." + year + "\n━━━━━━━━━━━━━━\n" + lines.join("\n") + "\n━━━━━━━━━━━━━━\n💰 Итого: " + total + " грн\n📅 Рабочих дней: " + workdays + "\n📊 Среднее за рабочий день: " + (workdays ? Math.round(total/workdays) : 0) + " грн");
+}
+bot.hears(/^календарь(?:\s+(\d{4}[.-]\d{2}))?$/i, async ctx => v3Calendar(ctx,ctx.match[1]));
+
+// Исторический формат: Мой месяц 2026.10
+bot.hears(/^мой месяц\s+(\d{4})[.-](\d{2})$/i, async ctx => {
+  const key = ctx.match[1] + "-" + ctx.match[2];
+  if (Number(ctx.match[2]) < 1 || Number(ctx.match[2]) > 12) return ctx.reply("❌ Неверный месяц. Пример: Мой месяц 2026.10");
+  await finalEarningsShowPeriodKey(ctx,"month",key,"mine");
+});
+
+// Сравнение: Сравнить 2026.10-2026.11
+bot.hears(/^сравнить\s+(\d{4})[.-](\d{2})\s*-\s*(\d{4})[.-](\d{2})$/i, async ctx => {
+  const a = ctx.match[1] + "-" + ctx.match[2];
+  const b = ctx.match[3] + "-" + ctx.match[4];
+  if ([Number(ctx.match[2]),Number(ctx.match[4])].some(x=>x<1||x>12)) return ctx.reply("❌ Формат: Сравнить 2026.10-2026.11");
+  const userId = String(ctx.from.id);
+  const x = await finalEarningsPeriodEntriesForKey("month",a,await finalEarningsLoad());
+  const y = await finalEarningsPeriodEntriesForKey("month",b,await finalEarningsLoad());
+  const get = rows => rows.find(r=>String(r.userId)===userId) || {total:0,tea:0,floors:0};
+  const left = get(x), right = get(y);
+  const workdays = async key => {
+    const state = await finalEarningsLoad();
+    const counted = new Set();
+    for (const [date,day] of Object.entries(state.days||{})) {
+      const parsed=finalEarningsParseDate(date);
+      if (parsed && finalEarningsMonthKey(parsed)===key) {
+        const item = day?.[userId] || {};
+        let worked = (Number(item.glovo)||0)+(Number(item.bolt)||0)+(Number(item.ipost)||Number(item.iposr)||0)+(Number(item.bolttr)||0)+(Number(item.personal)||0)+(Number(item.floors)||0)+(Number(item.quests)||0)>0;
+        if (!worked) { const tea = await finalEarningsTeaForDate(date); worked = Number(tea?.[userId]?.amount) > 0; }
+        if (worked) counted.add(finalEarningsISODate(parsed));
+      }
+    }
+    const tipsState = await loadTipsState();
+    await ensureTipsDay(tipsState);
+    const tipDays = [];
+    if (tipsState.currentDate) tipDays.push({ date: tipsState.currentDate, tips: tipsState.today || {} });
+    for (const day of tipsState.archive || []) if (day?.date) tipDays.push(day);
+    for (const day of tipDays) {
+      const parsed = finalEarningsParseDate(day.date);
+      if (parsed && finalEarningsMonthKey(parsed) === key && Number(day.tips?.[userId]?.amount) > 0) counted.add(finalEarningsISODate(parsed));
+    }
+    return counted.size;
+  };
+  const wa=await workdays(a), wb=await workdays(b);
+  await ctx.reply("📊 СРАВНЕНИЕ МЕСЯЦЕВ\n━━━━━━━━━━━━━━\n" + a + ":\n💰 " + left.total + " грн\n☕ Чай: " + left.tea + " грн\n🏢 Этажи: " + left.floors + " грн\n📅 Рабочих дней: " + wa + "\n📈 Среднее/рабочий день: " + (wa?Math.round(left.total/wa):0) + " грн\n\n" + b + ":\n💰 " + right.total + " грн\n☕ Чай: " + right.tea + " грн\n🏢 Этажи: " + right.floors + " грн\n📅 Рабочих дней: " + wb + "\n📈 Среднее/рабочий день: " + (wb?Math.round(right.total/wb):0) + " грн\n\nРазница: " + (right.total-left.total) + " грн");
+});
+
+// Средний заработок за рабочий день в текущих недельных/месячных отчётах.
+async function v3AverageForPeriod(userId, period, key) {
+  const state = await finalEarningsLoad();
+  const days = new Set();
+  for (const [date,day] of Object.entries(state.days||{})) {
+    const parsed=finalEarningsParseDate(date);
+    if (!parsed) continue;
+    const pkey=period==="week"?finalEarningsWeekKey(parsed):finalEarningsMonthKey(parsed);
+    const item=day?.[String(userId)]||{};
+    const sum=(Number(item.glovo)||0)+(Number(item.bolt)||0)+(Number(item.ipost)||Number(item.iposr)||0)+(Number(item.bolttr)||0)+(Number(item.personal)||0)+(Number(item.floors)||0)+(Number(item.quests)||0);
+    if(pkey===key) {
+      let worked = sum > 0;
+          if (!worked) { const tea = await finalEarningsTeaForDate(date); worked = Number(tea?.[String(userId)]?.amount) > 0; }
+      if (worked) days.add(finalEarningsISODate(parsed));
+          }
+  }
+  const tipsState = await loadTipsState();
+  await ensureTipsDay(tipsState);
+  const tipDays = [];
+  if (tipsState.currentDate) tipDays.push({ date: tipsState.currentDate, tips: tipsState.today || {} });
+  for (const day of tipsState.archive || []) if (day?.date) tipDays.push(day);
+  for (const day of tipDays) {
+    const parsed = finalEarningsParseDate(day.date);
+    const pkey = parsed ? (period === "week" ? finalEarningsWeekKey(parsed) : finalEarningsMonthKey(parsed)) : null;
+    if (pkey === key && Number(day.tips?.[String(userId)]?.amount) > 0) days.add(finalEarningsISODate(parsed));
+  }
+  const data=await finalEarningsPeriodEntriesForKey(period,key,state);
+  const mine=data.find(x=>String(x.userId)===String(userId));
+  const total=(mine?.total)||0;
+  return {days:days.size,average:days.size?Math.round(total/days.size):0};
+}
+
+
+
+
+// ============================================================
+// V3 ACHIEVEMENTS SYSTEM — 25 awards, period-aware and persistent
+// ============================================================
+
+const V3_ACHIEVEMENTS = [
+  {id:"dvushka",name:"Двушка",description:"2 000 грн заработка за день",repeat:"day"},
+  {id:"korol_smeny",name:"Король смены",description:"10 000 грн заработка за день",repeat:"day"},
+  {id:"zhirny_kush",name:"Жирный куш",description:"5 000 грн заработка за день",repeat:"day"},
+  {id:"denezhny_dozhd",name:"Денежный дождь",description:"50 000 грн заработка за неделю",repeat:"week"},
+  {id:"denezhny_meshok",name:"Денежный мешок",description:"120 000 грн заработка за месяц",repeat:"month"},
+  {id:"pervyi_vyhod",name:"Первый выход",description:"Первая рабочая смена",repeat:"once"},
+  {id:"trudyaga",name:"Трудяга",description:"7 рабочих дней подряд",repeat:"once"},
+  {id:"bez_otdyha",name:"Без отдыха",description:"10 рабочих дней подряд",repeat:"once"},
+  {id:"zhelezny_chelovek",name:"Железный человек",description:"20 рабочих дней подряд",repeat:"once"},
+  {id:"mashina",name:"Машина",description:"Отработать каждый календарный день месяца",repeat:"month"},
+  {id:"veteran",name:"Ветеран",description:"100 рабочих дней за всё время",repeat:"once"},
+  {id:"pervye_500",name:"Первые 500",description:"Получить 500 грн чаевых одним начислением",repeat:"once"},
+  {id:"kasar",name:"Касарь",description:"1 000 грн чаевых за один день",repeat:"day"},
+  {id:"chainik",name:"Чайник",description:"2 000 грн чаевых за один день",repeat:"day"},
+  {id:"shlyuha_klienta",name:"Шлюшка клиента",description:"2 000 грн чаевых за один день",repeat:"day"},
+  {id:"pidaras",name:"Пидарас",description:"5 000 грн чаевых за один день",repeat:"day"},
+  {id:"otsosal_klientu",name:"Отсосал клиенту",description:"Получить 1 000 грн чаевых одним начислением",repeat:"once"},
+  {id:"chainaya_imperiya",name:"Чайная империя",description:"30 000 грн чаевых за месяц",repeat:"month"},
+  {id:"rab_100",name:"Ебать ты раб",description:"Выполнить дневную цель на 100%",repeat:"day"},
+  {id:"perevypolnil_plan",name:"Перевыполнил план",description:"Выполнить дневную цель на 150%",repeat:"day"},
+  {id:"bez_ostanovki",name:"Без остановки",description:"Выполнить дневную цель 7 дней подряд",repeat:"day"},
+  {id:"rab_mesyatsa",name:"Раб месяца",description:"Выполнить месячную цель на 100%",repeat:"month"},
+  {id:"na_kurazhe",name:"На кураже",description:"Выполнить дневную цель 3 дня подряд",repeat:"day"},
+  {id:"absolyutny_rab",name:"Абсолютный раб",description:"Выполнить дневную цель на 200%",repeat:"day"},
+  {id:"papa_na_raione",name:"Папа на районе",description:"Занять первое место по заработку за месяц; при равенстве получают все лидеры",repeat:"month"}
+];
+
+function v3AchievementGetMeta(id) {
+  return V3_ACHIEVEMENTS.find(x => x.id === id);
+}
+
+function v3AchievementPeriodKey(repeat, dayISO, weekKey, monthKey) {
+  if (repeat === "day") return dayISO;
+  if (repeat === "week") return weekKey;
+  if (repeat === "month") return monthKey;
+  return "all";
+}
+
+async function v3AchievementBuildSnapshot() {
+  const state = await v3LoadEarningsState();
+  const tipsState = await loadTipsState();
+  await ensureTipsDay(tipsState);
+  const users = new Map();
+  const ensureUser = (id, name) => {
+    id = String(id);
+    if (!users.has(id)) users.set(id,{userId:id,name:name || state.users?.[id]?.name || "Курьер",days:{},maxSingleTip:0});
+    if (name) users.get(id).name = name;
+    return users.get(id);
+  };
+  const ensureDay = (user, iso) => {
+    if (!user.days[iso]) user.days[iso] = {earnings:0,tea:0,total:0};
+    return user.days[iso];
+  };
+  for (const [dateKey,day] of Object.entries(state.days || {})) {
+    const parsed = finalEarningsParseDate(dateKey);
+    if (!parsed) continue;
+    const iso = finalEarningsISODate(parsed);
+    for (const [id,item] of Object.entries(day || {})) {
+      if (!item) continue;
+      const user = ensureUser(id,item.name);
+      const row = ensureDay(user,iso);
+      row.earnings += (Number(item.glovo)||0)+(Number(item.bolt)||0)+(Number(item.ipost)||Number(item.iposr)||0)+(Number(item.bolttr)||0)+(Number(item.personal)||0)+(Number(item.floors)||0)+(Number(item.quests)||0);
+    }
+  }
+  const tipDays = [];
+  if (tipsState.currentDate) tipDays.push({date:tipsState.currentDate,tips:tipsState.today || {}});
+  for (const day of tipsState.archive || []) if (day?.date) tipDays.push(day);
+  for (const day of tipDays) {
+    const parsed = finalEarningsParseDate(day.date);
+    if (!parsed) continue;
+    const iso = finalEarningsISODate(parsed);
+    for (const [id,item] of Object.entries(day.tips || {})) {
+      if (!item) continue;
+      const user = ensureUser(id,item.name);
+      ensureDay(user,iso).tea += Number(item.amount)||0;
+    }
+  }
+  for (const [id,user] of Object.entries(state.users || {})) ensureUser(id,user?.name);
+  for (const record of state.records || []) {
+    if (!record || record.type !== "tea" || record.canceledAt) continue;
+    const user = ensureUser(record.userId,record.name);
+    user.maxSingleTip = Math.max(user.maxSingleTip,Number(record.amount)||0);
+  }
+  for (const user of users.values()) {
+    for (const row of Object.values(user.days)) row.total = row.earnings + row.tea;
+  }
+  const today = v3DateISO(finalEarningsToday());
+  const todayDate = finalEarningsParseDate(today);
+  const monthKey = finalEarningsMonthKey(todayDate);
+  const weekKey = finalEarningsWeekKey(todayDate);
+  const monthTotals = {};
+  for (const [id,user] of users) {
+    let weekTotal=0,monthTotal=0,monthTea=0;
+    for (const [iso,row] of Object.entries(user.days)) {
+      const date=finalEarningsParseDate(iso);
+      if (!date) continue;
+      if (finalEarningsWeekKey(date)===weekKey) weekTotal+=row.total;
+      if (finalEarningsMonthKey(date)===monthKey) {monthTotal+=row.total;monthTea+=row.tea;}
+    }
+    monthTotals[id]={total:monthTotal,tea:monthTea};
+    user.weekTotal=weekTotal;
+    user.monthTotal=monthTotal;
+    user.monthTea=monthTea;
+    user.today=user.days[today] || {earnings:0,tea:0,total:0};
+    user.workDates=Object.keys(user.days).filter(date=>user.days[date].total>0).sort();
+    user.workdayCount=user.workDates.length;
+    let streak=0;
+    const workSet=new Set(user.workDates);
+    for(let d=new Date(today+"T00:00:00Z");;d.setUTCDate(d.getUTCDate()-1)){
+      const iso=finalEarningsISODate(d);
+      if(!workSet.has(iso)) break;
+      streak++;
+    }
+    user.workStreak=streak;
+    const monthStart=monthKey+"-01";
+    const daysInMonth=new Date(Date.UTC(todayDate.getUTCFullYear(),todayDate.getUTCMonth()+1,0)).getUTCDate();
+    user.monthWorkdays=user.workDates.filter(x=>x.startsWith(monthKey+"-")).length;
+    user.daysInMonth=daysInMonth;
+    user.isMonthEnd=Number(today.slice(8,10))===daysInMonth;
+    user.dailyGoalHistory=state.goalHistory?.day?.[id] || {};
+    const currentDailyGoal=state.goals?.day?.[id];
+    user.todayGoal=currentDailyGoal?.dateKey===today?Number(currentDailyGoal.target)||0:Number(user.dailyGoalHistory?.[today]?.target)||0;
+    let goalStreak=0;
+    for(let d=new Date(today+"T00:00:00Z");;d.setUTCDate(d.getUTCDate()-1)){
+      const iso=finalEarningsISODate(d);
+      const target=Number(user.dailyGoalHistory?.[iso]?.target)||(iso===today?user.todayGoal:0);
+      const earned=Number(user.days[iso]?.total)||0;
+      if(!(target>0) || earned<target) break;
+      goalStreak++;
+    }
+    user.goalStreak=goalStreak;
+    const monthGoal=state.goals?.month?.[id];
+    user.monthGoal=monthGoal?.periodKey===monthKey?Number(monthGoal.target)||0:0;
+    user.monthGoalPercent=user.monthGoal>0?monthTotal/user.monthGoal*100:0;
+  }
+  const maxMonth = Math.max(0,...Object.values(monthTotals).map(x=>x.total));
+  return {state,users,today,monthKey,weekKey,monthTotals,maxMonth};
+}
+
+async function v3AchievementGrant(snapshot,userId,achievementId,periodKey,newAwards) {
+  const meta=v3AchievementGetMeta(achievementId);
+  if(!meta) return;
+  const state=snapshot.state;
+  if(!Array.isArray(state.achievements)) state.achievements=[];
+  const awardKey=achievementId+":"+periodKey;
+  if(state.achievements.some(x=>x.awardKey===awardKey && String(x.userId)===String(userId))) return;
+  const user=snapshot.users.get(String(userId));
+  const award={awardKey,userId:String(userId),name:user?.name||state.users?.[String(userId)]?.name||"Курьер",achievementId,periodKey,earnedAt:new Date().toISOString()};
+  state.achievements.push(award);
+  newAwards.push(award);
+}
+
+async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
+  const user=snapshot.users.get(String(userId));
+  if(!user) return;
+  const dayKey=snapshot.today, weekKey=snapshot.weekKey, monthKey=snapshot.monthKey;
+  const daily=user.today.total, tea=user.today.tea;
+  const award=async(id,period)=>v3AchievementGrant(snapshot,userId,id,period,newAwards);
+  if(daily>=2000) await award("dvushka",dayKey);
+  if(daily>=10000) await award("korol_smeny",dayKey);
+  if(daily>=5000) await award("zhirny_kush",dayKey);
+  if(user.weekTotal>=50000) await award("denezhny_dozhd",weekKey);
+  if(user.monthTotal>=120000) await award("denezhny_meshok",monthKey);
+  if(user.workdayCount>=1) await award("pervyi_vyhod","all");
+  if(user.workStreak>=7) await award("trudyaga","all");
+  if(user.workStreak>=10) await award("bez_otdyha","all");
+  if(user.workStreak>=20) await award("zhelezny_chelovek","all");
+  if(user.isMonthEnd && user.monthWorkdays===user.daysInMonth) await award("mashina",monthKey);
+  if(user.workdayCount>=100) await award("veteran","all");
+  if(user.maxSingleTip>=500) await award("pervye_500","all");
+  if(tea>=1000) await award("kasar",dayKey);
+  if(tea>=2000) await award("chainik",dayKey);
+  if(tea>=2000) await award("shlyuha_klienta",dayKey);
+  if(tea>=5000) await award("pidaras",dayKey);
+  if(user.maxSingleTip>=1000) await award("otsosal_klientu","all");
+  if(user.monthTea>=30000) await award("chainaya_imperiya",monthKey);
+  const dailyGoal=user.todayGoal;
+  const goalPercent=dailyGoal>0?daily/dailyGoal*100:0;
+  if(goalPercent>=100) await award("rab_100",dayKey);
+  if(goalPercent>=150) await award("perevypolnil_plan",dayKey);
+  if(goalPercent>=200) await award("absolyutny_rab",dayKey);
+  if(user.goalStreak>=7) await award("bez_ostanovki",dayKey);
+  if(user.goalStreak>=3) await award("na_kurazhe",dayKey);
+  if(user.monthGoal>0 && user.monthGoalPercent>=100) await award("rab_mesyatsa",monthKey);
+  if(user.monthTotal>0 && user.monthTotal===snapshot.maxMonth) await award("papa_na_raione",monthKey);
+}
+
+async function v3CheckAchievements(userId) {
+  await v3EvaluateAllAchievements();
+}
+
+async function v3EvaluateAllAchievements() {
+  const snapshot=await v3AchievementBuildSnapshot();
+  if(snapshot.state.achievementsEnabled===false) return;
+  const newAwards=[];
+  for(const userId of snapshot.users.keys()) await v3EvaluateAchievementsForUser(snapshot,userId,newAwards);
+  if(!newAwards.length) return;
+  await finalEarningsSave(snapshot.state);
+  for(const item of newAwards){
+    const meta=v3AchievementGetMeta(item.achievementId);
+    try { await bot.telegram.sendMessage(item.userId,"🏆 НОВОЕ ДОСТИЖЕНИЕ!\n\n"+meta.name+"\n"+meta.description); }
+    catch(error){console.error("V3 achievement notification:",item.userId,error.message);}
+  }
+}
+
+bot.hears(/^мои достижения$/i,async ctx=>{
+  const state=await v3LoadEarningsState();
+  const mine=(state.achievements||[]).filter(x=>String(x.userId)===String(ctx.from.id)).sort((a,b)=>String(b.earnedAt).localeCompare(String(a.earnedAt)));
+  if(!mine.length) return ctx.reply("🏆 ТВОИ ДОСТИЖЕНИЯ\n\nПока нет полученных наград. Выполняй условия — бот сообщит, когда появится первое достижение.");
+  const lines=mine.map((x,i)=>{const meta=v3AchievementGetMeta(x.achievementId);return (i+1)+". 🏅 "+(meta?.name||x.achievementId)+(meta?.repeat==="day"||meta?.repeat==="week"||meta?.repeat==="month"?" — "+x.periodKey:"");});
+  await ctx.reply("🏆 МОИ ДОСТИЖЕНИЯ ("+mine.length+")\n━━━━━━━━━━━━━━\n"+lines.join("\n"));
+});
+
+bot.hears(/^достижения$/i,async ctx=>{
+  const state=await v3LoadEarningsState();
+  const earned=(state.achievements||[]).filter(x=>String(x.userId)===String(ctx.from.id));
+  const lines=V3_ACHIEVEMENTS.map((x,i)=>(i+1)+". "+x.name+" — "+x.description+(earned.some(a=>a.achievementId===x.id)?" ✅":""));
+  await ctx.reply("🏆 СПИСОК ДОСТИЖЕНИЙ ("+V3_ACHIEVEMENTS.length+")\n━━━━━━━━━━━━━━\n"+lines.join("\n"));
+});
+
+bot.hears(/^топ достижений$/i,async ctx=>{
+  const state=await v3LoadEarningsState();
+  const counts={};
+  for(const award of state.achievements||[]){
+    const id=String(award.userId);
+    if(!counts[id]) counts[id]={name:award.name||state.users?.[id]?.name||"Курьер",count:0};
+    counts[id].count++;
+  }
+  const rows=Object.entries(counts).sort((a,b)=>b[1].count-a[1].count||a[1].name.localeCompare(b[1].name)).slice(0,10);
+  await ctx.reply("🏆 ТОП ДОСТИЖЕНИЙ\n━━━━━━━━━━━━━━\n"+(rows.length?rows.map((x,i)=>(i+1)+". "+x[1].name+" — "+x[1].count).join("\n"):"Пока никто не получил достижения."));
+});
+
+// Сохраняем дневную цель по каждому дню — это нужно для серий выполненных планов.
+const v3OriginalSetDailyGoal = finalEarningsSetGoal;
+finalEarningsSetGoal = async function(ctx,period,amount){
+  await v3OriginalSetDailyGoal(ctx,period,amount);
+  await v3CheckAchievements(String(ctx.from.id));
+};
+
+// ============================================================
+// V3 ADMIN PANEL — доступ только ADMIN_IDS
+// ============================================================
+
+function v3AdminKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "📊 Общая статистика", callback_data: "v3_admin_stats" }],
+      [{ text: "🎯 Цели курьеров", callback_data: "v3_admin_goals" }],
+      [{ text: "👥 Пользователи", callback_data: "v3_admin_users" }],
+      [{ text: "📜 История изменений", callback_data: "v3_admin_history" }],
+      [{ text: "🏅 Настройки достижений", callback_data: "v3_admin_achievements" }],
+      [{ text: "⏰ Напоминания", callback_data: "v3_admin_reminders" }],
+      [{ text: "⚙️ Параметры бота", callback_data: "v3_admin_settings" }]
+    ]
+  };
+}
+
+async function v3AdminShow(ctx, section = "menu", edit = false) {
+  if (!isAdmin(ctx)) {
+    if (ctx.answerCbQuery) await ctx.answerCbQuery("Нет доступа");
+    else await ctx.reply("Нет доступа ❌");
+    return;
+  }
+  let text = "🛠 АДМИН-ПАНЕЛЬ\n━━━━━━━━━━━━━━";
+  let keyboard = v3AdminKeyboard();
+  const state = await v3LoadEarningsState();
+  if (section === "stats") {
+    const today = await finalEarningsBuildDay(finalEarningsToday());
+    const week = await finalEarningsPeriodEntriesForKey("week", finalEarningsWeekKey(finalEarningsParseDate(finalEarningsToday())), state);
+    const month = await finalEarningsPeriodEntriesForKey("month", finalEarningsMonthKey(finalEarningsParseDate(finalEarningsToday())), state);
+    const sum = rows => rows.reduce((n,x) => n + (Number(x.total)||0),0);
+    text += "\n\n📊 ОБЩАЯ СТАТИСТИКА\nСегодня: " + sum(today) + " грн (" + today.length + " кур.)\nНеделя: " + sum(week) + " грн (" + week.length + " кур.)\nМесяц: " + sum(month) + " грн (" + month.length + " кур.)";
+  } else if (section === "goals") {
+    const dateKey = v3DateISO(finalEarningsToday());
+    const lines = [];
+    for (const [id,goal] of Object.entries(state.goals.day || {})) {
+      if (goal?.dateKey !== dateKey) continue;
+      const name = state.users?.[id]?.name || id;
+      const report = await finalEarningsReport(id,dateKey);
+      lines.push(name + " — " + report.total + "/" + goal.target + " грн (" + Math.round(report.total/goal.target*100) + "%)");
+    }
+    text += "\n\n🎯 ЦЕЛИ НА СЕГОДНЯ\n" + (lines.length ? lines.join("\n") : "Дневные цели пока не установлены.");
+    text += "\n\nНедельные и месячные цели сохраняются в своих разделах статистики.";
+  } else if (section === "achievements") {
+    text += "\n\n🏅 ДОСТИЖЕНИЯ\nСтатус: " + (state.achievementsEnabled === false ? "выключены" : "включены") + "\nВсего награждений: " + (state.achievements || []).length + "\nВсего видов: " + V3_ACHIEVEMENTS.length;
+    keyboard = { inline_keyboard: [[{ text: state.achievementsEnabled === false ? "▶️ Включить достижения" : "⏸ Выключить достижения", callback_data: "v3_admin_achievements_toggle" }],[{ text: "⬅️ В админ-панель", callback_data: "v3_admin_menu" }]] };
+  } else if (section === "users") {
+    const users = Object.entries(state.users || {});
+    text += "\n\n👥 ПОЛЬЗОВАТЕЛИ (" + users.length + ")\n" + (users.length ? users.slice(0,50).map(([id,u],i)=>(i+1)+". "+(u?.name||"Без имени")+" — "+id).join("\n") : "Пользователей пока нет.");
+  } else if (section === "history") {
+    const rows = (state.audit || []).slice(-20).reverse();
+    text += "\n\n📜 ПОСЛЕДНИЕ ОПЕРАЦИИ\n" + (rows.length ? rows.map(x=>(x.action==="cancel"?"❌ отмена":x.action==="reset"?"♻️ сброс":"➕ добавление")+" — "+(x.name||x.userId)+": "+x.amount+" грн ("+x.type+")").join("\n") : "История пока пуста.");
+  } else if (section === "reminders") {
+    text += "\n\n⏰ НАПОМИНАНИЯ\nЧасовой пояс: Europe/Kyiv\nДействующие автоматические напоминания сохранены без изменений.\nИзменение их расписания через панель пока не включено.";
+  } else if (section === "settings") {
+    text += "\n\n⚙️ ПАРАМЕТРЫ БОТА\nЧасовой пояс: " + TIMEZONE + "\nАдминистраторы: " + ADMIN_IDS.join(", ") + "\nЧат(ы) дневных отчётов: " + ([...(state.goalReportChatIds||[]),state.goalReportChatId].filter(Boolean).join(", ") || "не настроены") + "\nЛимит таблицы: " + MAX_PEOPLE_PER_DAY + " человека в день.";
+  }
+  if (section !== "menu" && section !== "achievements") keyboard = { inline_keyboard: [[{ text: "⬅️ В админ-панель", callback_data: "v3_admin_menu" }]] };
+  if (edit) {
+    try { await ctx.editMessageText(text,{reply_markup:keyboard}); }
+    catch { await ctx.reply(text,{reply_markup:keyboard}); }
+  } else {
+    await ctx.reply(text,{reply_markup:keyboard});
+  }
+}
+
+bot.hears(/^апанель$/i, async ctx => v3AdminShow(ctx,"menu",false));
+bot.action("v3_admin_achievements_toggle",async ctx=>{
+  if(!isAdmin(ctx)){await ctx.answerCbQuery("Нет доступа");return;}
+  const state=await v3LoadEarningsState();
+  state.achievementsEnabled=state.achievementsEnabled===false;
+  await finalEarningsSave(state);
+  await ctx.answerCbQuery(state.achievementsEnabled?"Достижения включены":"Достижения выключены");
+  await v3AdminShow(ctx,"achievements",true);
+});
+
+bot.action(/^v3_admin_(menu|stats|goals|users|history|reminders|settings|achievements)$/, async ctx => {
+  try {
+    await ctx.answerCbQuery();
+    await v3AdminShow(ctx,ctx.match[1],true);
+  } catch (error) {
+    console.error("V3 ADMIN PANEL:",error);
+    try { await ctx.answerCbQuery("Ошибка ❌"); } catch {}
   }
 });

@@ -1,0 +1,25 @@
+name: Globovets syntax check
+
+on:
+  pull_request:
+    paths:
+      - 'index.js'
+      - 'legacy.js'
+      - '.github/workflows/globovets-check.yml'
+  push:
+    branches:
+      - main
+      - globovets-v3
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check JavaScript syntax
+        run: |
+          node --check index.js
+          node --check legacy.js
