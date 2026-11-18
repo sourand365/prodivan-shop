@@ -14,6 +14,30 @@ bot.use(async (ctx, next) => {
   return next();
 });
 
+// Счётчик команд и открытий статистики для секретных достижений.
+bot.use(async (ctx,next)=>{
+  try{
+    const raw=String(ctx.message?.text||"").trim();
+    if(raw && ctx.from?.id){
+      const recognized=/^(?:\/|мой день$|моя неделя$|мой месяц(?:\s|$)|календарь(?:\s|$)|топ(?:\s|$)|статистика$|цель\s+\d+|сравнить\s|достижения$|мои достижения$|топ достижений$|запись\s|отмена\s)/i.test(raw);
+      if(recognized){
+        const state=await v3LoadEarningsState();
+        const uid=String(ctx.from.id),day=v3DateISO(finalEarningsToday());
+        state.achievementActivity=state.achievementActivity||{};
+        state.achievementActivity[uid]=state.achievementActivity[uid]||{};
+        state.achievementActivity[uid][day]=state.achievementActivity[uid][day]||{commands:0,statsOpens:0,goalChanges:0};
+        state.achievementActivity[uid][day].commands=(Number(state.achievementActivity[uid][day].commands)||0)+1;
+        if(/^(?:мой день$|моя неделя$|мой месяц(?:\s|$)|календарь(?:\s|$)|топ(?:\s|$)|статистика$)/i.test(raw)){
+          state.achievementActivity[uid][day].statsOpens=(Number(state.achievementActivity[uid][day].statsOpens)||0)+1;
+        }
+        await finalEarningsSave(state);
+      }
+    }
+  }catch(error){console.error("Achievement activity counter:",error.message);}
+  return next();
+});
+
+
 // ============================================================
 // TELEGRAM БОТ ДЛЯ КУРЬЕРОВ — NxCreate
 // ПОЛНАЯ ВЕРСИЯ
@@ -10505,7 +10529,7 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
   const dayRows = Object.entries(user.days).sort((a,b)=>a[0].localeCompare(b[0]));
   const workRows = dayRows.filter(([d,x])=>x.earnings>0);
   const tipRecords = (snapshot.state.records||[]).filter(x=>x && x.type==="tea" && !x.canceledAt && String(x.userId)===String(userId) && String(x.dateKey)>=V3_ACHIEVEMENT_START_DATE);
-  const tipTotal = tipRecords.reduce((n,x)=>n+(Number(x.amount)||0),0);
+  const tipTotal = [...users.values()].reduce((n,u)=>n+Object.values(u.days).reduce((sum,row)=>sum+(Number(row.tea)||0),0),0);
   const tipCount = tipRecords.length;
   const todayTips = tipRecords.filter(x=>x.dateKey===dayKey);
 
@@ -10603,10 +10627,8 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
     if(priorTotal>0 && user.monthTotal>=priorTotal*1.5) await secretAward("skachok",monthKey);
     if(priorTotal>0 && user.monthTotal<=priorTotal*0.5) await secretAward("obval",monthKey);
     if(priorTotal>0 && user.monthTotal>=priorTotal*2) await secretAward("podem_s_kolen",monthKey);
-    if(user.monthWorkdays===user.daysInMonth) {
-      const everyWorkdayHasGoal=workRows.filter(([d])=>d.startsWith(monthKey+"-")).every(([d,row])=>Number(user.dailyGoalHistory?.[d]?.target)>0 && row.total>=Number(user.dailyGoalHistory[d].target));
-      if(everyWorkdayHasGoal) await secretAward("kazhdyi_den_kak_nado",monthKey);
-    }
+    const everyWorkdayHasGoal=workRows.filter(([d])=>d.startsWith(monthKey+"-")).every(([d,row])=>Number(user.dailyGoalHistory?.[d]?.target)>0 && row.total>=Number(user.dailyGoalHistory[d].target));
+    if(everyWorkdayHasGoal && user.monthWorkdays>0) await secretAward("kazhdyi_den_kak_nado",monthKey);
   }
   const yesterday=new Date(today+"T00:00:00Z");yesterday.setUTCDate(yesterday.getUTCDate()-1);
   const yISO=finalEarningsISODate(yesterday);
