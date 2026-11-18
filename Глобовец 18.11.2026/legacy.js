@@ -10508,6 +10508,61 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
   const tipTotal = tipRecords.reduce((n,x)=>n+(Number(x.amount)||0),0);
   const tipCount = tipRecords.length;
   const todayTips = tipRecords.filter(x=>x.dateKey===dayKey);
+
+  // Календарные и рейтинговые секреты.
+  const dayDate=finalEarningsParseDate(dayKey);
+  const weekday=dayDate.getUTCDay();
+  const dayOfMonth=dayDate.getUTCDate();
+  if((dayKey.endsWith("-12-31") || dayKey.endsWith("-01-01")) && daily>0) await secretAward("novogodniy_yobar",dayKey);
+  if(weekday===5 && dayOfMonth===13 && daily>0) await secretAward("pyatnitsa_13",dayKey);
+  const dayRank=[...snapshot.users.values()].map(x=>({id:x.userId,total:Number(x.days?.[dayKey]?.earnings)||0})).sort((a,b)=>b.total-a.total);
+  if(dayRank[0]?.id===String(userId) && dayRank[0]?.total>0 && dayRank[1]?.total>0 && dayRank[0].total>=dayRank[1].total*2) await secretAward("otryv_suka",dayKey);
+  if(dayRank[0]?.id===String(userId) && dayRank[0]?.total>0) {
+    let topRun=0;
+    for(let n=0;n<10;n++){const d=new Date(dayKey+"T00:00:00Z");d.setUTCDate(d.getUTCDate()-n);const k=finalEarningsISODate(d);const ranking=[...snapshot.users.values()].map(x=>({id:x.userId,total:Number(x.days?.[k]?.earnings)||0})).sort((a,b)=>b.total-a.total);if(ranking[0]?.id===String(userId)&&ranking[0]?.total>0)topRun++;else break;}
+    if(topRun>=10) await secretAward("vechnyi_top","all");
+  }
+  const weekAgo=new Date(dayKey+"T00:00:00Z");weekAgo.setUTCDate(weekAgo.getUTCDate()-7);
+  const weekAgoKey=finalEarningsISODate(weekAgo);
+  if(user.days[weekAgoKey] && daily===user.days[weekAgoKey].earnings) await secretAward("tot_zhe_den",dayKey);
+  const monthAgo=new Date(Date.UTC(dayDate.getUTCFullYear(),dayDate.getUTCMonth()-1,dayDate.getUTCDate()));
+  const monthAgoKey=finalEarningsISODate(monthAgo);
+  if(monthAgoKey>=V3_ACHIEVEMENT_START_DATE && user.days[monthAgoKey] && daily===user.days[monthAgoKey].earnings) await secretAward("eho",dayKey);
+  // Рекорды по дням недели за всё время новой системы.
+  let weekdayRecord=0;
+  for(const candidate of snapshot.users.values()) for(const [date,entry] of Object.entries(candidate.days)){const dt=finalEarningsParseDate(date);if(dt && dt.getUTCDay()===weekday && (weekday===1||weekday===6)) weekdayRecord=Math.max(weekdayRecord,Number(entry.earnings)||0);}
+  if((weekday===1||weekday===6) && daily>0 && daily>=weekdayRecord) await secretAward(weekday===1?"luchshiy_ponedelnik":"luchshaya_subbota",dayKey);
+  // Командное среднее за день: общий заработок / общее число курьерских смен.
+  const dayWorkers=[...snapshot.users.values()].filter(x=>(Number(x.days?.[dayKey]?.earnings)||0)>0);
+  const teamDayAverage=dayWorkers.length?dayWorkers.reduce((n,x)=>n+(Number(x.days?.[dayKey]?.earnings)||0),0)/dayWorkers.length:0;
+  const belowTeamAverage=dayWorkers.length>0 && daily>0 && daily<=teamDayAverage*0.9;
+  let belowRun=belowTeamAverage?1:0;
+  if(belowTeamAverage){for(let n=1;n<3;n++){const dt=new Date(dayKey+"T00:00:00Z");dt.setUTCDate(dt.getUTCDate()-n);const k=finalEarningsISODate(dt);const workers=[...snapshot.users.values()].filter(x=>(Number(x.days?.[k]?.earnings)||0)>0);const avg=workers.length?workers.reduce((sum,x)=>sum+(Number(x.days?.[k]?.earnings)||0),0)/workers.length:0;const own=Number(user.days?.[k]?.earnings)||0;if(!workers.length||!own||own>avg*0.9)break;belowRun++;}}
+  if(belowRun>=3) await secretAward("huzhe_no_stabilno",dayKey);
+  // Цель достигнута до 18:00: проверяем время записей заработка за этот день.
+  if(dailyGoal>0){
+    const timed=(snapshot.state.records||[]).filter(x=>x && !x.canceledAt && String(x.userId)===String(userId) && x.dateKey===dayKey && x.type!=="tea" && x.createdAt);
+    let sumBefore18=0;
+    for(const rec of timed.sort((a,b)=>String(a.createdAt).localeCompare(String(b.createdAt)))){const dt=new Date(rec.createdAt);const parts=new Intl.DateTimeFormat("en-GB",{timeZone:TIMEZONE,hour:"2-digit",minute:"2-digit",hour12:false}).formatToParts(dt);const hh=Number(parts.find(x=>x.type==="hour")?.value);if(hh<18)sumBefore18+=Number(rec.amount)||0;}
+    if(sumBefore18>=dailyGoal) await secretAward("utrenniy_yobar",dayKey);
+  }
+  // Секреты, основанные на изменении дневной цели и активности в боте.
+  const activity=snapshot.state.achievementActivity?.[userId]?.[dayKey] || {};
+  if((Number(activity.statsOpens)||0)>=10) await secretAward("statistik",dayKey);
+  if((Number(activity.commands)||0)>=30) await secretAward("zadrot_bota",dayKey);
+  if((Number(activity.goalChanges)||0)>=10) await secretAward("filosof",dayKey);
+  if(user.dailyGoalHistory?.[dayKey]?.changedAfterComplete) await secretAward("peredumal",dayKey);
+  // Метадостижения считаются по всем обычным и скрытым наградам.
+  const awardsToday=userAwards.filter(x=>String(x.periodKey)===dayKey || String(x.earnedAt||"").startsWith(dayKey));
+  const newToday=newAwards.filter(x=>String(x.userId)===String(userId) && (x.periodKey===dayKey || String(x.earnedAt||"").startsWith(dayKey)));
+  if(awardsToday.length+newToday.length>=3) await secretAward("tri_za_den",dayKey);
+  if(awardsToday.length+newToday.length>=5) await secretAward("pyat_za_smenu",dayKey);
+  const weekStart=new Date(dayKey+"T00:00:00Z");weekStart.setUTCDate(weekStart.getUTCDate()-((weekday+6)%7));
+  const weekDates=new Set(Array.from({length:7},(_,i)=>{const d=new Date(weekStart);d.setUTCDate(d.getUTCDate()+i);return finalEarningsISODate(d);}));
+  const achievementDays=new Set(userAwards.map(x=>String(x.earnedAt||"").slice(0,10)).filter(x=>weekDates.has(x)));
+  for(const x of newToday) achievementDays.add(dayKey);
+  if(achievementDays.size>=7) await secretAward("ohotnik_za_achivkami",weekKey);
+
   if(tea===777) await secretAward("tri_topora",dayKey);
   if(daily===1000) await secretAward("kopeika_k_kopeike",dayKey);
   if(tea>user.today.earnings) await secretAward("huzhe_zarplaty",dayKey);
