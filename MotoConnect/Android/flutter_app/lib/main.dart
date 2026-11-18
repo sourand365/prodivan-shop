@@ -253,20 +253,160 @@ class HomeMapScreen extends StatelessWidget {
   );
 }
 
-class CallsScreen extends StatelessWidget {
+
+class CallsScreen extends StatefulWidget {
   const CallsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) => const _SectionPage(
-    title: 'Звонки',
-    subtitle: 'Личные вызовы и голосовые каналы',
-    icon: Icons.headset_mic,
-    children: [
-      _FeatureTile(icon: Icons.wifi_tethering, title: 'Общий канал рядом', detail: 'Связь с доступными курьерами в пределах цепочки 1 км'),
-      _FeatureTile(icon: Icons.call, title: 'Личные звонки', detail: 'Звонок конкретному участнику'),
-      _FeatureTile(icon: Icons.people_alt_outlined, title: 'Участники канала', detail: 'Список подключённых появится после подключения сервера'),
-    ],
-  );
+  State<CallsScreen> createState() => _CallsScreenState();
+}
+
+class _CallsScreenState extends State<CallsScreen> {
+  String? _activeChannel;
+  String _selectedChannel = 'nearby';
+  bool _micEnabled = true;
+
+  final List<Map<String, String>> _channels = const [
+    {'id': 'nearby', 'name': 'Общий канал рядом', 'description': 'Участники в радиусе до 1 км', 'count': '4 участника'},
+    {'id': 'team', 'name': 'Моя команда', 'description': 'Закрытый канал группы', 'count': '2 участника'},
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final isConnected = _activeChannel != null;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.headset_mic, color: motoYellow, size: 30),
+            const SizedBox(width: 10),
+            const Expanded(child: Text('Голосовые каналы', style: TextStyle(fontSize: 25, fontWeight: FontWeight.w900))),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+              decoration: BoxDecoration(
+                color: isConnected ? const Color(0xFF173D28) : motoYellow.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(children: [
+                Icon(Icons.circle, size: 8, color: isConnected ? const Color(0xFF62D18A) : motoYellow),
+                const SizedBox(width: 6),
+                Text(isConnected ? 'В канале' : 'Не подключён', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
+              ]),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text('Выбирай канал вручную и общайся с другими райдерами',
+          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+        const SizedBox(height: 20),
+        _voiceStatusCard(context, isConnected),
+        const SizedBox(height: 22),
+        const Text('ДОСТУПНЫЕ КАНАЛЫ', style: TextStyle(color: motoYellow, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
+        const SizedBox(height: 10),
+        ..._channels.map((channel) => _channelCard(context, channel)),
+        const SizedBox(height: 20),
+        Row(children: [
+          const Expanded(child: Text('УЧАСТНИКИ', style: TextStyle(color: motoYellow, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1.5))),
+          Text(_selectedChannel == 'nearby' ? '4 рядом' : '2 в команде',
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12)),
+        ]),
+        const SizedBox(height: 10),
+        _participantTile(context, 'МК', 'Максим', 'На линии', true),
+        _participantTile(context, 'АК', 'Андрей', 'Говорит', true),
+        _participantTile(context, 'Д', 'Денис', 'Слушает', false),
+        const SizedBox(height: 18),
+        OutlinedButton.icon(
+          onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Личные звонки появятся после подключения голосового сервера'))),
+          icon: const Icon(Icons.call, color: motoYellow),
+          label: const Text('ЛИЧНЫЙ ЗВОНОК'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Theme.of(context).colorScheme.onSurface,
+            side: const BorderSide(color: motoYellow),
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
+        ),
+        const SizedBox(height: 8),
+        Text('Сейчас это демонстрационный экран. Передача голоса и список пользователей подключатся вместе с сервером.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+      ],
+    );
+  }
+
+  Widget _voiceStatusCard(BuildContext context, bool isConnected) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(colors: [Color(0xFF27230C), Color(0xFF171717)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: motoYellow.withValues(alpha: 0.5))),
+      child: Column(children: [
+        Icon(isConnected ? Icons.graphic_eq : Icons.headset_off, color: motoYellow, size: 34),
+        const SizedBox(height: 8),
+        Text(isConnected ? 'ВЫ ПОДКЛЮЧЕНЫ' : 'ГОЛОСОВАЯ СВЯЗЬ',
+          style: const TextStyle(color: motoYellow, fontWeight: FontWeight.w900, letterSpacing: 1.4, fontSize: 12)),
+        const SizedBox(height: 5),
+        Text(isConnected ? (_channels.firstWhere((c) => c['id'] == _activeChannel)['name'] ?? '') : 'Выберите канал для подключения',
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 16),
+        Row(children: [
+          Expanded(child: OutlinedButton.icon(
+            onPressed: isConnected ? () => setState(() => _micEnabled = !_micEnabled) : null,
+            icon: Icon(_micEnabled ? Icons.mic : Icons.mic_off, size: 18),
+            label: Text(_micEnabled ? 'МИКРОФОН ВКЛ' : 'МИКРОФОН ВЫКЛ'),
+            style: OutlinedButton.styleFrom(foregroundColor: motoYellow, side: const BorderSide(color: motoYellow), padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 6)))),
+          const SizedBox(width: 10),
+          Expanded(child: FilledButton.icon(
+            onPressed: () => setState(() { _activeChannel = isConnected ? null : _selectedChannel; }),
+            icon: Icon(isConnected ? Icons.call_end : Icons.headset_mic, size: 18),
+            label: Text(isConnected ? 'ВЫЙТИ' : 'ПОДКЛЮЧИТЬСЯ'),
+            style: FilledButton.styleFrom(
+              backgroundColor: isConnected ? const Color(0xFF9E3028) : motoYellow,
+              foregroundColor: Colors.black,
+              padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 6)))),
+        ]),
+      ]),
+    );
+  }
+
+  Widget _channelCard(BuildContext context, Map<String, String> channel) {
+    final selected = _selectedChannel == channel['id'];
+    final active = _activeChannel == channel['id'];
+    return Card(
+      margin: const EdgeInsets.only(bottom: 9),
+      color: selected ? motoYellow.withValues(alpha: 0.09) : null,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: selected ? motoYellow : Colors.transparent)),
+      child: ListTile(
+        onTap: () => setState(() => _selectedChannel = channel['id']!),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+        leading: Container(
+          width: 44, height: 44,
+          decoration: BoxDecoration(color: motoYellow.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(13)),
+          child: Icon(channel['id'] == 'nearby' ? Icons.radar : Icons.groups, color: motoYellow)),
+        title: Text(channel['name']!, style: const TextStyle(fontWeight: FontWeight.w800)),
+        subtitle: Padding(padding: const EdgeInsets.only(top: 4), child: Text('${channel['description']} · ${channel['count']}')),
+        trailing: Icon(active ? Icons.check_circle : selected ? Icons.radio_button_checked : Icons.radio_button_off,
+          color: active || selected ? motoYellow : Colors.grey)),
+    );
+  }
+
+  Widget _participantTile(BuildContext context, String initials, String name, String status, bool online) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 7),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 13, vertical: 1),
+        leading: CircleAvatar(backgroundColor: motoYellow, foregroundColor: Colors.black,
+          child: Text(initials, style: const TextStyle(fontWeight: FontWeight.w900))),
+        title: Text(name, style: const TextStyle(fontWeight: FontWeight.w800)),
+        subtitle: Text(status, style: const TextStyle(fontSize: 12)),
+        trailing: Icon(online ? Icons.circle : Icons.circle_outlined, size: 10,
+          color: online ? const Color(0xFF62D18A) : Colors.grey)),
+    );
+  }
 }
 
 class GroupsScreen extends StatelessWidget {
