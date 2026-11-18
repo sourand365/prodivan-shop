@@ -9774,7 +9774,8 @@ async function v3AverageForPeriod(userId, period, key) {
     const sum=(Number(item.glovo)||0)+(Number(item.bolt)||0)+(Number(item.ipost)||Number(item.iposr)||0)+(Number(item.bolttr)||0)+(Number(item.personal)||0)+(Number(item.floors)||0)+(Number(item.quests)||0);
     if(pkey===key) {
       let worked = sum > 0;
-          if (!worked) { const tea = await finalEarningsTeaForDate(date); worked = Number(tea?.[String(userId)]?.amount) > 0; }\n      if (worked) days.add(finalEarningsISODate(parsed));
+          if (!worked) { const tea = await finalEarningsTeaForDate(date); worked = Number(tea?.[String(userId)]?.amount) > 0; }
+      if (worked) days.add(finalEarningsISODate(parsed));
           }
   }
   const data=await finalEarningsPeriodEntriesForKey(period,key,state);
