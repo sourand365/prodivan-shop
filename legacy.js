@@ -9767,14 +9767,14 @@ bot.hears(/^сравнить\s+(\d{4})[.-](\d{2})\s*-\s*(\d{4})[.-](\d{2})$/i, a
   const left = get(x), right = get(y);
   const workdays = async key => {
     const state = await finalEarningsLoad();
-    let count=0;
+    const counted = new Set();
     for (const [date,day] of Object.entries(state.days||{})) {
       const parsed=finalEarningsParseDate(date);
       if (parsed && finalEarningsMonthKey(parsed)===key) {
         const item = day?.[userId] || {};
         let worked = (Number(item.glovo)||0)+(Number(item.bolt)||0)+(Number(item.ipost)||Number(item.iposr)||0)+(Number(item.bolttr)||0)+(Number(item.personal)||0)+(Number(item.floors)||0)+(Number(item.quests)||0)>0;
         if (!worked) { const tea = await finalEarningsTeaForDate(date); worked = Number(tea?.[userId]?.amount) > 0; }
-        if (worked) count++;
+        if (worked) counted.add(finalEarningsISODate(parsed));
       }
     }
     const tipsState = await loadTipsState();
@@ -9784,9 +9784,9 @@ bot.hears(/^сравнить\s+(\d{4})[.-](\d{2})\s*-\s*(\d{4})[.-](\d{2})$/i, a
     for (const day of tipsState.archive || []) if (day?.date) tipDays.push(day);
     for (const day of tipDays) {
       const parsed = finalEarningsParseDate(day.date);
-      if (parsed && finalEarningsMonthKey(parsed) === key && Number(day.tips?.[userId]?.amount) > 0) count++;
+      if (parsed && finalEarningsMonthKey(parsed) === key && Number(day.tips?.[userId]?.amount) > 0) counted.add(finalEarningsISODate(parsed));
     }
-    return count;
+    return counted.size;
   };
   const wa=await workdays(a), wb=await workdays(b);
   await ctx.reply("📊 СРАВНЕНИЕ МЕСЯЦЕВ\n━━━━━━━━━━━━━━\n" + a + ":\n💰 " + left.total + " грн\n☕ Чай: " + left.tea + " грн\n🏢 Этажи: " + left.floors + " грн\n📅 Рабочих дней: " + wa + "\n📈 Среднее/рабочий день: " + (wa?Math.round(left.total/wa):0) + " грн\n\n" + b + ":\n💰 " + right.total + " грн\n☕ Чай: " + right.tea + " грн\n🏢 Этажи: " + right.floors + " грн\n📅 Рабочих дней: " + wb + "\n📈 Среднее/рабочий день: " + (wb?Math.round(right.total/wb):0) + " грн\n\nРазница: " + (right.total-left.total) + " грн");
