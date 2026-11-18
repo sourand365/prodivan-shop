@@ -9484,15 +9484,15 @@ const MEME_STICKERS = {
 // ОБРАБОТКА МЕМОВ
 // ============================================================
 
-bot.on("text", async ctx => {
+bot.on("text", async (ctx, next) => {
   try {
     const text = ctx.message.text?.trim().toLowerCase();
 
-    if (!text) return;
+    if (!text) return next();
 
     const stickers = MEME_STICKERS[text];
 
-    if (!stickers || stickers.length === 0) return;
+    if (!stickers || stickers.length === 0) return next();
 
     // Случайный стикер
     const randomSticker =
@@ -9502,6 +9502,7 @@ bot.on("text", async ctx => {
 
   } catch (err) {
     console.error("Ошибка отправки мем-стикера:", err);
+    return next();
   }
 });
 
