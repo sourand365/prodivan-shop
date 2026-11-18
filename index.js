@@ -167,7 +167,7 @@ async function start() {
   const legacyPath = path.join(__dirname, "legacy.js");
   if (!fs.existsSync(legacyPath)) throw new Error("Не найден legacy.js.");
   const legacySource = fs.readFileSync(legacyPath, "utf8");
-  new Function("bot", "db", legacySource)(bot, db);
+  new Function("bot", "db", "__globovetsZlib", legacySource)(bot, db, require("node:zlib"));
 
   await bot.launch();
   console.log("Глобовец запущен. База:", DB_PATH);
