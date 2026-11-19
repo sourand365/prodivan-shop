@@ -10709,10 +10709,12 @@ async function v3CheckAchievements(userId) {
   const snapshot=await v3AchievementBuildSnapshot();
   if(snapshot.state.achievementsEnabled===false)return;
   const newAwards=[];
-  await v3EvaluateAchievementsForUser(snapshot,String(userId),newAwards,"instant");
-  if(!newAwards.length)return;
+  if(snapshot.state.achievementsEnabled!==false) await v3EvaluateAchievementsForUser(snapshot,String(userId),newAwards,"instant");
+  const titleEvents=v3EvaluateTitles(snapshot,"instant");
+  if(!newAwards.length && !titleEvents.length)return;
   await finalEarningsSave(snapshot.state);
   await v3SendAchievementAwards(newAwards);
+  await v3NotifyTitleEvents(titleEvents);
 }
 
 async function v3SendAchievementAwards(newAwards) {
@@ -10750,12 +10752,12 @@ function v3EvaluateTitles(snapshot,phase) {
     const after=next.holders.map(x=>String(x.userId)).sort().join(",");
     const periodChanged=resetPeriod && old.periodKey!==periodKey;
     state.titles[id]=next;
-    if(before!==after || periodChanged || value>Number(old.recordValue||0)){
+    if(before!==after || periodChanged){
       const meta=V3_TITLES.find(x=>x.id===id);
       events.push({id,name:meta?.name||id,value,holders:next.holders,periodKey});
     }
   };
-  if(phase==="monthly"){
+  if(["instant","daily","monthly"].includes(phase)){
     const value=snapshot.maxMonth;
     const holders=[...snapshot.users.values()].filter(x=>x.monthTotal===value&&value>0).map(x=>({userId:x.userId,name:x.name}));
     setTitle("papa_na_raione",value,holders,snapshot.monthKey,true);
