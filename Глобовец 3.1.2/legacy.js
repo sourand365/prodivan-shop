@@ -9738,8 +9738,8 @@ function v3StartDailyTimer() {
 }
 v3StartDailyTimer();
 
-// Формат: Запись (имя) [ДД.ММ.ГГГГ]. Только администратор.
-bot.hears(/^запись\s*\((.+?)\)(?:\s+(\d{2}[./]\d{2}[./]\d{4}))?$/i, async ctx => {
+// Форматы: Логи (имя) (ДД.ММ.ГГГГ) и Запись (имя) ДД.ММ.ГГГГ.
+bot.hears(/^(?:логи|запись)\s*\((.+?)\)(?:\s+\(?(\d{2}[./]\d{2}[./]\d{4})\)?)?$/i, async ctx => {
   if (!isAdmin(ctx)) return ctx.reply("Нет доступа ❌");
   const name = ctx.match[1].trim();
   const dateKey = v3DateISO(ctx.match[2] || finalEarningsToday());
@@ -9747,15 +9747,20 @@ bot.hears(/^запись\s*\((.+?)\)(?:\s+(\d{2}[./]\d{2}[./]\d{4}))?$/i, async 
   const user = Object.entries(state.users || {}).find(([id,u]) => String(u?.name || "").trim().toLowerCase() === name.toLowerCase());
   if (!user) return ctx.reply("❌ Курьер не найден: " + name);
   const [userId] = user;
-  const rows = (state.records || []).filter(r => r.userId === String(userId) && r.dateKey === dateKey && !r.canceledAt);
+  const rows = (state.records || [])
+    .filter(r => r.userId === String(userId) && r.dateKey === dateKey && !r.canceledAt)
+    .sort((a,b) => String(a.createdAt||"").localeCompare(String(b.createdAt||"")) || String(a.id).localeCompare(String(b.id)));
   if (!rows.length) return ctx.reply("📒 Записей " + name + " за " + finalEarningsDotDate(finalEarningsParseDate(dateKey)) + " нет.\nСтарые суммы, внесённые до версии 3.0, не имеют разбивки по отдельным операциям.");
   const labels = { glovo:"Glovo", bolt:"Bolt", ipost:"iPOST", bolttr:"Bolt TR", personal:"Личные доставки", floors:"Этажи", quests:"Квесты", tea:"Чай" };
-  const total = rows.reduce((sum,r) => sum + r.amount, 0);
+  const total = rows.reduce((sum,r) => sum + (Number(r.amount)||0), 0);
   const lines = rows.map((r,i) => (i+1) + ". " + (labels[r.type] || r.type) + " — " + r.amount + " грн");
-  await ctx.reply("📒 ЗАПИСИ — " + name + "\n📅 " + finalEarningsDotDate(finalEarningsParseDate(dateKey)) + "\n━━━━━━━━━━━━━━\n" + lines.join("\n") + "\n━━━━━━━━━━━━━━\n💰 Всего по новым записям: " + total + " грн");
+  state.adminLogContexts = state.adminLogContexts || {};
+  state.adminLogContexts[String(ctx.from.id)] = { userId:String(userId), name, dateKey, recordIds:rows.map(r=>r.id), createdAt:new Date().toISOString() };
+  await finalEarningsSave(state);
+  await ctx.reply("📋 ЛОГИ — " + name + "\n📅 " + finalEarningsDotDate(finalEarningsParseDate(dateKey)) + "\n━━━━━━━━━━━━━━\n" + lines.join("\n") + "\n━━━━━━━━━━━━━━\n💰 Всего по новым записям: " + total + " грн\n\nДля отмены записи используй: Отмена (" + name + ") номер");
 });
 
-// Отмена (имя) 2 — отменяет запись №2; без номера отменяет последнюю активную.
+// Отмена (имя) 2 — отменяет запись из последнего списка логов; без списка — последнюю запись за сегодня.
 bot.hears(/^отмена\s*\((.+?)\)(?:\s+(\d+))?$/i, async ctx => {
   if (!isAdmin(ctx)) return ctx.reply("Нет доступа ❌");
   const name = ctx.match[1].trim();
@@ -9764,39 +9769,53 @@ bot.hears(/^отмена\s*\((.+?)\)(?:\s+(\d+))?$/i, async ctx => {
   const user = Object.entries(state.users || {}).find(([id,u]) => String(u?.name || "").trim().toLowerCase() === name.toLowerCase());
   if (!user) return ctx.reply("❌ Курьер не найден: " + name);
   const [userId] = user;
-  const today = v3DateISO(finalEarningsToday());
-  const rows = (state.records || []).filter(r => r.userId === String(userId) && r.dateKey === today && !r.canceledAt);
-  if (!rows.length) return ctx.reply("❌ Нет активных записей за сегодня.");
-  const index = requested ? requested - 1 : rows.length - 1;
-  if (!Number.isInteger(index) || index < 0 || index >= rows.length) return ctx.reply("❌ Такой записи нет. Используй «Запись (" + name + ")» для списка.");
-  const record = rows[index];
-  const date = finalEarningsParseDate(record.dateKey);
-  if (record.type === "tea") {
-    const tips = await loadTipsState();
+  const adminId=String(ctx.from.id);
+  const context=state.adminLogContexts?.[adminId];
+  let rows=[],record=null,index=-1;
+  if(requested && context && String(context.userId)===String(userId)){
+    index=requested-1;
+    const recordId=context.recordIds?.[index];
+    record=(state.records||[]).find(r=>r.id===recordId && String(r.userId)===String(userId) && !r.canceledAt);
+    if(!record)return ctx.reply("❌ Такой активной записи нет в последнем списке логов. Сначала вызови «Логи ("+name+") (дата)» ещё раз.");
+  }else{
+    if(requested && context && String(context.userId)!==String(userId)) return ctx.reply("❌ Последний список логов открыт для другого курьера. Сначала вызови «Логи ("+name+") (дата)».");
+    const today=v3DateISO(finalEarningsToday());
+    rows=(state.records||[])
+      .filter(r=>String(r.userId)===String(userId)&&r.dateKey===today&&!r.canceledAt)
+      .sort((a,b)=>String(a.createdAt||"").localeCompare(String(b.createdAt||""))||String(a.id).localeCompare(String(b.id)));
+    if(!rows.length)return ctx.reply("❌ Нет активных записей за сегодня.");
+    index=requested?requested-1:rows.length-1;
+    if(!Number.isInteger(index)||index<0||index>=rows.length)return ctx.reply("❌ Такой записи нет. Используй «Логи ("+name+") (дата)» для списка.");
+    record=rows[index];
+  }
+  const date=finalEarningsParseDate(record.dateKey);
+  if(record.type==="tea"){
+    const tips=await loadTipsState();
     await ensureTipsDay(tips);
-    const dateISO = record.dateKey;
-    if (tips.currentDate === dateISO && tips.today?.[userId]) tips.today[userId].amount = Math.max(0, (Number(tips.today[userId].amount)||0) - record.amount);
-    else {
-      const archived = (tips.archive || []).find(d => v3DateISO(d.date) === dateISO);
-      if (archived?.tips?.[userId]) archived.tips[userId].amount = Math.max(0, (Number(archived.tips[userId].amount)||0) - record.amount);
+    const dateISO=record.dateKey;
+    if(tips.currentDate===dateISO&&tips.today?.[userId])tips.today[userId].amount=Math.max(0,(Number(tips.today[userId].amount)||0)-record.amount);
+    else{
+      const archived=(tips.archive||[]).find(d=>v3DateISO(d.date)===dateISO);
+      if(archived?.tips?.[userId])archived.tips[userId].amount=Math.max(0,(Number(archived.tips[userId].amount)||0)-record.amount);
     }
     await saveTipsState(tips);
-  } else {
-    const earnings = await finalEarningsLoad();
-    const day = finalEarningsFindDay(earnings, record.dateKey) || finalEarningsFindDay(earnings, finalEarningsSlashDate(date));
-    if (!day?.[userId]) return ctx.reply("❌ Не удалось найти сумму для отмены. Запись оставлена без изменений.");
-    day[userId][record.type] = Math.max(0, (Number(day[userId][record.type]) || 0) - record.amount);
+  }else{
+    const earnings=await finalEarningsLoad();
+    const day=finalEarningsFindDay(earnings,record.dateKey)||finalEarningsFindDay(earnings,finalEarningsSlashDate(date));
+    if(!day?.[userId])return ctx.reply("❌ Не удалось найти сумму для отмены. Запись оставлена без изменений.");
+    day[userId][record.type]=Math.max(0,(Number(day[userId][record.type])||0)-record.amount);
     await finalEarningsSave(earnings);
   }
-  const freshState = await v3LoadEarningsState();
-  const freshRecord = (freshState.records || []).find(r => r.id === record.id);
-  if (!freshRecord || freshRecord.canceledAt) return ctx.reply("❌ Эта запись уже отменена.");
-  freshRecord.canceledAt = new Date().toISOString();
-  freshRecord.canceledBy = String(ctx.from.id);
-  freshState.audit.push({ at: freshRecord.canceledAt, action:"cancel", recordId:freshRecord.id, userId:String(userId), name, type:freshRecord.type, amount:freshRecord.amount, by:String(ctx.from.id) });
+  const freshState=await v3LoadEarningsState();
+  const freshRecord=(freshState.records||[]).find(r=>r.id===record.id);
+  if(!freshRecord||freshRecord.canceledAt)return ctx.reply("❌ Эта запись уже отменена.");
+  freshRecord.canceledAt=new Date().toISOString();
+  freshRecord.canceledBy=adminId;
+  freshState.audit.push({at:freshRecord.canceledAt,action:"cancel",recordId:freshRecord.id,userId:String(userId),name,type:freshRecord.type,amount:freshRecord.amount,by:adminId});
+  if(freshState.adminLogContexts)delete freshState.adminLogContexts[adminId];
   await finalEarningsSave(freshState);
   await v3CheckAchievements(String(userId),true);
-  await ctx.reply("✅ Запись отменена\n\n👤 " + name + "\n№" + (index+1) + " — " + record.amount + " грн");
+  await ctx.reply("✅ Запись отменена\n\n👤 "+name+"\n📅 "+finalEarningsDotDate(date)+"\n№"+(index+1)+" — "+record.amount+" грн");
 });
 
 bot.hears(/^(?:аист|история)$/i, async ctx => {
