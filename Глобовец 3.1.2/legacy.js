@@ -9955,7 +9955,13 @@ const V3_ACHIEVEMENTS = [
   {
     "id": "pervyi_vyhod",
     "name": "Первый выход",
-    "description": "Первая рабочая смена",
+    "description": "Первая любая рабочая запись",
+    "repeat": "once"
+  },
+  {
+    "id": "znakomstvo_s_chatom",
+    "name": "Знакомство с чатом",
+    "description": "Отправить первое обычное текстовое сообщение в общем чате",
     "repeat": "once"
   },
   {
@@ -10066,12 +10072,11 @@ const V3_ACHIEVEMENTS = [
     "description": "Выполнить дневную цель на 200%",
     "repeat": "day"
   },
-  {
-    "id": "papa_na_raione",
-    "name": "Папа на районе",
-    "description": "Первое место по заработку за месяц; при равенстве награждаются все лидеры",
-    "repeat": "month"
-  }
+];
+const V3_TITLES = [
+  { id: "papa_na_raione", name: "Папа на районе", description: "Лидер месячного заработка" },
+  { id: "luchshiy_ponedelnik", name: "Лучший понедельник", description: "Рекорд заработка среди понедельников" },
+  { id: "luchshaya_subbota", name: "Лучшая суббота", description: "Рекорд заработка среди суббот" }
 ];
 
 const V3_SECRET_ACHIEVEMENTS = [
@@ -10298,18 +10303,6 @@ const V3_SECRET_ACHIEVEMENTS = [
     "secret": true
   },
   {
-    "id": "luchshiy_ponedelnik",
-    "name": "Лучший понедельник",
-    "description": "Поставить рекорд заработка среди всех понедельников",
-    "secret": true
-  },
-  {
-    "id": "luchshaya_subbota",
-    "name": "Лучшая суббота",
-    "description": "Поставить рекорд заработка среди всех суббот",
-    "secret": true
-  },
-  {
     "id": "polsotni",
     "name": "Полсотни",
     "description": "Получить 50 достижений",
@@ -10384,7 +10377,7 @@ const V3_SECRET_ACHIEVEMENTS = [
 ];
 
 function v3AchievementGetMeta(id) {
-  return V3_ACHIEVEMENTS.find(x => x.id === id) || V3_SECRET_ACHIEVEMENTS.find(x => x.id === id);
+  return V3_ACHIEVEMENTS.find(x => x.id === id) || V3_SECRET_ACHIEVEMENTS.find(x => x.id === id) || V3_TITLES.find(x => x.id === id);
 }
 
 function v3AchievementPeriodKey(repeat, dayISO, weekKey, monthKey) {
@@ -10499,7 +10492,7 @@ async function v3AchievementBuildSnapshot() {
 
 async function v3AchievementGrant(snapshot,userId,achievementId,periodKey,newAwards) {
   const meta=v3AchievementGetMeta(achievementId);
-  if(!meta) return;
+  if(!meta || V3_TITLES.some(x=>x.id===achievementId)) return;
   const state=snapshot.state;
   if(!Array.isArray(state.achievements)) state.achievements=[];
   const awardKey=achievementId+":"+periodKey;
@@ -10553,7 +10546,7 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase="in
   if(user.goalStreak>=7) await award("bez_ostanovki",dayKey);
   if(user.goalStreak>=3) await award("na_kurazhe",dayKey);
   if(user.monthGoal>0 && user.monthGoalPercent>=100) await award("rab_mesyatsa",monthKey);
-  if(user.monthTotal>0 && user.monthTotal===snapshot.maxMonth && user.isMonthEnd) await award("papa_na_raione",monthKey);
+  // «Папа на районе» теперь хранится как переходящее звание, а не достижение.
   // Скрытые достижения — вычисляются по накопленной истории, но только после даты старта.
   const secretAward = async (id, period) => { if(allowed.has(id)) await v3AchievementGrant(snapshot,userId,id,period || "all",newAwards); };
   const allAwards = snapshot.state.achievements || [];
@@ -10588,7 +10581,7 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase="in
   // Рекорды по дням недели за всё время новой системы.
   let weekdayRecord=0;
   for(const [date,entry] of Object.entries(user.days)){const dt=finalEarningsParseDate(date);if(dt && dt.getUTCDay()===weekday && (weekday===1||weekday===6)) weekdayRecord=Math.max(weekdayRecord,Number(entry.earnings)||0);}
-  if((weekday===1||weekday===6) && daily>0 && daily>=weekdayRecord) await secretAward(weekday===1?"luchshiy_ponedelnik":"luchshaya_subbota",dayKey);
+  // Рекорды понедельников и суббот обрабатываются отдельной системой званий.
   // Командное среднее за день: общий заработок / общее число курьерских смен.
   const dayWorkers=[...snapshot.users.values()].filter(x=>(Number(x.days?.[dayKey]?.earnings)||0)>0);
   const teamDayAverage=dayWorkers.length?dayWorkers.reduce((n,x)=>n+(Number(x.days?.[dayKey]?.earnings)||0),0)/dayWorkers.length:0;
@@ -10738,10 +10731,11 @@ async function v3EvaluateAllAchievements(phase="daily") {
 
 bot.hears(/^мои достижения$/i,async ctx=>{
   const state=await v3LoadEarningsState();
-  const mine=(state.achievements||[]).filter(x=>String(x.userId)===String(ctx.from.id)).sort((a,b)=>String(b.earnedAt).localeCompare(String(a.earnedAt)));
+  const mine=(state.achievements||[]).filter(x=>String(x.userId)===String(ctx.from.id)&&!V3_TITLES.some(t=>t.id===x.achievementId)).sort((a,b)=>String(b.earnedAt).localeCompare(String(a.earnedAt)));
   if(!mine.length) return ctx.reply("🏆 ТВОИ ДОСТИЖЕНИЯ\n\nПока нет полученных наград. Выполняй условия — бот сообщит, когда появится первое достижение.");
   const lines=mine.map((x,i)=>{const meta=v3AchievementGetMeta(x.achievementId);return (i+1)+". 🏅 "+(meta?.name||x.achievementId)+" — "+String(x.earnedDate||x.earnedAt||"").slice(0,10)+(meta?.repeat==="day"||meta?.repeat==="week"||meta?.repeat==="month"?" ("+x.periodKey+")":"");});
-  await ctx.reply("🏆 МОИ ДОСТИЖЕНИЯ ("+mine.length+")\n━━━━━━━━━━━━━━\n"+lines.join("\n"));
+  const titles=Object.entries(state.titles||{}).filter(([id,t])=>(t.holders||[]).some(h=>String(h.userId)===String(ctx.from.id))).map(([id,t])=>"👑 "+(V3_TITLES.find(x=>x.id===id)?.name||id)+(t.periodKey?" — "+t.periodKey:""));
+  await ctx.reply("🏆 МОИ ДОСТИЖЕНИЯ ("+mine.length+")\n━━━━━━━━━━━━━━\n"+lines.join("\n")+(titles.length?"\n\n👑 ЗВАНИЯ\n"+titles.join("\n"):""));
 });
 
 bot.hears(/^достижения$/i,async ctx=>{
@@ -10749,16 +10743,17 @@ bot.hears(/^достижения$/i,async ctx=>{
   const earned=(state.achievements||[]).filter(x=>String(x.userId)===String(ctx.from.id));
   const ordinary=V3_ACHIEVEMENTS.map((x,i)=>{const a=earned.filter(y=>y.achievementId===x.id).sort((u,v)=>String(v.earnedAt).localeCompare(String(u.earnedAt)))[0];return (i+1)+". "+(a?"🟡":"⚫")+" "+x.name+(a?" — "+String(a.earnedDate||a.earnedAt||"").slice(0,10):"");});
   const hidden=V3_SECRET_ACHIEVEMENTS.filter(x=>earned.some(a=>a.achievementId===x.id)).length;
-  const keyboard={inline_keyboard:V3_ACHIEVEMENTS.map(x=>[{text:(earned.some(a=>a.achievementId===x.id)?"🏅 ":"🔒 ")+x.name,callback_data:"v3_ach_"+x.id}]).concat([[{text:"🟣 Скрытые достижения ("+hidden+"/51)",callback_data:"v3_ach_hidden"}]])};
-  await ctx.reply("🏆 ДОСТИЖЕНИЯ\n━━━━━━━━━━━━━━\n🟡 ОБЫЧНЫЕ ("+earned.filter(a=>V3_ACHIEVEMENTS.some(x=>x.id===a.achievementId)).length+"/"+V3_ACHIEVEMENTS.length+")\n"+ordinary.join("\n")+"\n\n🟣 Скрытые: "+hidden+"/51\nНераскрытые секреты не показываются.",{reply_markup:keyboard});
+  const keyboard={inline_keyboard:V3_ACHIEVEMENTS.map(x=>[{text:(earned.some(a=>a.achievementId===x.id)?"🏅 ":"🔒 ")+x.name,callback_data:"v3_ach_"+x.id}]).concat([[{text:"🟣 Скрытые достижения ("+hidden+"/"+V3_SECRET_ACHIEVEMENTS.length+")",callback_data:"v3_ach_hidden"}]])};
+  const titleLines=Object.entries(state.titles||{}).map(([id,t])=>{const meta=V3_TITLES.find(x=>x.id===id);return meta?"👑 "+meta.name+": "+(t.holders||[]).map(h=>h.name).join(", "):null;}).filter(Boolean);
+  await ctx.reply("🏆 ДОСТИЖЕНИЯ\n━━━━━━━━━━━━━━\n🟡 ОБЫЧНЫЕ ("+earned.filter(a=>V3_ACHIEVEMENTS.some(x=>x.id===a.achievementId)).length+"/"+V3_ACHIEVEMENTS.length+")\n"+ordinary.join("\n")+"\n\n🟣 Скрытые: "+hidden+"/"+V3_SECRET_ACHIEVEMENTS.length+"\nНераскрытые секреты не показываются."+(titleLines.length?"\n\n👑 ЗВАНИЯ\n"+titleLines.join("\n"):""),{reply_markup:keyboard});
 });
 bot.action("v3_ach_hidden",async ctx=>{
   const state=await v3LoadEarningsState(),mine=(state.achievements||[]).filter(x=>String(x.userId)===String(ctx.from.id));
   const count=mine.filter(a=>V3_SECRET_ACHIEVEMENTS.some(x=>x.id===a.achievementId)).length;
-  await ctx.answerCbQuery("Скрытые достижения: "+count+"/51");
+  await ctx.answerCbQuery("Скрытые достижения: "+count+"/"+V3_SECRET_ACHIEVEMENTS.length);
   const unlocked=mine.filter(a=>V3_SECRET_ACHIEVEMENTS.some(x=>x.id===a.achievementId)).sort((a,b)=>String(a.earnedAt).localeCompare(String(b.earnedAt)));
   const rows=unlocked.map((a,i)=>{const m=v3AchievementGetMeta(a.achievementId);return (i+1)+". 🟣 "+m.name+" — "+String(a.earnedDate||a.earnedAt||"").slice(0,10);});
-  await ctx.reply("🟣 СЕКРЕТНЫЕ ДОСТИЖЕНИЯ\n━━━━━━━━━━━━━━\nСкрытые: "+count+"/51\n\n"+(rows.length?rows.join("\n"):"Пока ни одно не раскрыто.")+"\n\nОстальные условия останутся тайной до выполнения.");
+  await ctx.reply("🟣 СЕКРЕТНЫЕ ДОСТИЖЕНИЯ\n━━━━━━━━━━━━━━\nСкрытые: "+count+"/"+V3_SECRET_ACHIEVEMENTS.length+"\n\n"+(rows.length?rows.join("\n"):"Пока ни одно не раскрыто.")+"\n\nОстальные условия останутся тайной до выполнения.");
 });
 bot.action(/^v3_ach_([a-z0-9_]+)$/,async ctx=>{
   const id=ctx.match[1],meta=v3AchievementGetMeta(id);
