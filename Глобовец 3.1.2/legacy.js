@@ -10806,9 +10806,7 @@ function v3EvaluateTitles(snapshot,phase) {
     setTitle("papa_na_raione",value,holders,snapshot.monthKey,true);
   }
   if(["instant","daily"].includes(phase)){
-    const weekday=finalEarningsParseDate(snapshot.today).getUTCDay();
-    const id=weekday===1?"luchshiy_ponedelnik":weekday===6?"luchshaya_subbota":null;
-    if(id){
+    for(const [weekday,id] of [[1,"luchshiy_ponedelnik"],[6,"luchshaya_subbota"]]){
       let value=0;
       const holderMap=new Map();
       for(const user of snapshot.users.values()){
