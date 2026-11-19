@@ -9926,19 +9926,19 @@ const V3_ACHIEVEMENTS = [
   {
     "id": "dvushka",
     "name": "Двушка",
-    "description": "2 000 грн заработка за день",
+    "description": "Больше 2 000 грн заработка за день",
     "repeat": "day"
   },
   {
     "id": "korol_smeny",
     "name": "Король смены",
-    "description": "10 000 грн заработка за день",
+    "description": "Больше 10 000 грн заработка за день",
     "repeat": "day"
   },
   {
     "id": "zhirny_kush",
     "name": "Жирный куш",
-    "description": "5 000 грн заработка за день",
+    "description": "Больше 5 000 грн заработка за день",
     "repeat": "day"
   },
   {
@@ -10633,6 +10633,13 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase="in
   if(goalPercent>=300) await secretAward("ebanutiiy",dayKey);
   if(user.monthGoal>0 && user.monthGoalPercent>=150) await secretAward("nahuy_plan",monthKey);
   if(user.monthGoal>0 && user.monthGoalPercent>=100 && Number(dayKey.slice(8,10))<20) await secretAward("dosrochno",monthKey);
+  const priorMonthForRecovery=new Date(Date.UTC(todayDate.getUTCFullYear(),todayDate.getUTCMonth()-1,1));
+  const priorKeyForRecovery=finalEarningsMonthKey(priorMonthForRecovery);
+  const twoMonthsForRecovery=new Date(Date.UTC(todayDate.getUTCFullYear(),todayDate.getUTCMonth()-2,1));
+  const twoMonthsKeyForRecovery=finalEarningsMonthKey(twoMonthsForRecovery);
+  const monthSumForRecovery=key=>Object.entries(user.days).reduce((sum,[date,row])=>sum+(date.startsWith(key+"-")?(Number(row.earnings)||0):0),0);
+  const priorSumForRecovery=monthSumForRecovery(priorKeyForRecovery),twoMonthsSumForRecovery=monthSumForRecovery(twoMonthsKeyForRecovery);
+  if(priorKeyForRecovery+"-01">=V3_ACHIEVEMENT_START_DATE && twoMonthsSumForRecovery>0 && priorSumForRecovery>0 && priorSumForRecovery<=twoMonthsSumForRecovery*0.5 && user.monthTotal>=priorSumForRecovery*2) await secretAward("podem_s_kolen",monthKey);
   const everyRecordedWorkdayHasGoal=workRows.filter(([d])=>d.startsWith(monthKey+"-")).every(([d,row])=>Number(user.dailyGoalHistory?.[d]?.target)>0 && row.total>=Number(user.dailyGoalHistory[d].target));
   if(everyRecordedWorkdayHasGoal && user.monthWorkdays>0) await secretAward("kazhdyi_den_kak_nado",monthKey);
   if(user.monthGoal>0 && user.monthGoalPercent>=100) {
@@ -10658,7 +10665,7 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase="in
     const priorTotal=monthEarnings(priorKey),twoMonthsTotal=monthEarnings(twoMonthsKey);
     if(priorKey>=V3_ACHIEVEMENT_START_DATE.slice(0,7) && priorTotal>0 && user.monthTotal>=priorTotal*1.5) await secretAward("skachok",monthKey);
     if(priorKey+"-01">=V3_ACHIEVEMENT_START_DATE && priorTotal>0 && user.monthTotal<=priorTotal*0.5) await secretAward("obval",monthKey);
-    if(priorKey+"-01">=V3_ACHIEVEMENT_START_DATE && twoMonthsTotal>0 && priorTotal<=twoMonthsTotal*0.5 && user.monthTotal>=priorTotal*2) await secretAward("podem_s_kolen",monthKey);
+    // «Подъём с колен» проверяется сразу при достижении порога.
     const everyWorkdayHasGoal=workRows.filter(([d])=>d.startsWith(monthKey+"-")).every(([d,row])=>Number(user.dailyGoalHistory?.[d]?.target)>0 && row.total>=Number(user.dailyGoalHistory[d].target));
     if(everyWorkdayHasGoal && user.monthWorkdays>0) await secretAward("kazhdyi_den_kak_nado",monthKey);
   }
@@ -10810,7 +10817,7 @@ async function v3EvaluateAllAchievements(phase="daily") {
 bot.hears(/^мои достижения$/i,async ctx=>{
   const state=await v3LoadEarningsState();
   const mine=(state.achievements||[]).filter(x=>String(x.userId)===String(ctx.from.id)&&!V3_TITLES.some(t=>t.id===x.achievementId)).sort((a,b)=>String(b.earnedAt).localeCompare(String(a.earnedAt)));
-  if(!mine.length) return ctx.reply("🏆 ТВОИ ДОСТИЖЕНИЯ\n\nПока нет полученных наград. Выполняй условия — бот сообщит, когда появится первое достижение.");
+  if(!mine.length && !Object.values(state.titles||{}).some(t=>(t.holders||[]).some(h=>String(h.userId)===String(ctx.from.id)))) return ctx.reply("🏆 ТВОИ ДОСТИЖЕНИЯ\n\nПока нет полученных наград. Выполняй условия — бот сообщит, когда появится первое достижение.");
   const lines=mine.map((x,i)=>{const meta=v3AchievementGetMeta(x.achievementId);return (i+1)+". 🏅 "+(meta?.name||x.achievementId)+" — "+String(x.earnedDate||x.earnedAt||"").slice(0,10)+(meta?.repeat==="day"||meta?.repeat==="week"||meta?.repeat==="month"?" ("+x.periodKey+")":"");});
   const titles=Object.entries(state.titles||{}).filter(([id,t])=>(t.holders||[]).some(h=>String(h.userId)===String(ctx.from.id))).map(([id,t])=>"👑 "+(V3_TITLES.find(x=>x.id===id)?.name||id)+(t.periodKey?" — "+t.periodKey:""));
   await ctx.reply("🏆 МОИ ДОСТИЖЕНИЯ ("+mine.length+")\n━━━━━━━━━━━━━━\n"+lines.join("\n")+(titles.length?"\n\n👑 ЗВАНИЯ\n"+titles.join("\n"):""));
