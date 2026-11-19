@@ -10009,7 +10009,7 @@ const V3_ACHIEVEMENTS = [
   {
     "id": "kasar",
     "name": "Касарь",
-    "description": "1 000 грн чаевых за один день",
+    "description": "Больше 1 000 грн чаевых за день",
     "repeat": "day"
   },
   {
@@ -10592,9 +10592,9 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase="in
   // Командное среднее за день: общий заработок / общее число курьерских смен.
   const dayWorkers=[...snapshot.users.values()].filter(x=>x.workDates.includes(dayKey));
   const teamDayAverage=dayWorkers.length?dayWorkers.reduce((n,x)=>n+(Number(x.days?.[dayKey]?.earnings)||0),0)/dayWorkers.length:0;
-  const belowTeamAverage=dayWorkers.length>0 && workedToday && daily<=teamDayAverage*0.9;
+  const belowTeamAverage=dayWorkers.length>0 && teamDayAverage>0 && workedToday && daily<=teamDayAverage*0.9;
   let belowRun=belowTeamAverage?1:0;
-  if(belowTeamAverage){for(let n=1;n<3;n++){const dt=new Date(dayKey+"T00:00:00Z");dt.setUTCDate(dt.getUTCDate()-n);const k=finalEarningsISODate(dt);const workers=[...snapshot.users.values()].filter(x=>x.workDates.includes(k));const avg=workers.length?workers.reduce((sum,x)=>sum+(Number(x.days?.[k]?.earnings)||0),0)/workers.length:0;const own=Number(user.days?.[k]?.earnings)||0;if(!workers.length||!user.workDates.includes(k)||own>avg*0.9)break;belowRun++;}}
+  if(belowTeamAverage){for(let n=1;n<3;n++){const dt=new Date(dayKey+"T00:00:00Z");dt.setUTCDate(dt.getUTCDate()-n);const k=finalEarningsISODate(dt);const workers=[...snapshot.users.values()].filter(x=>x.workDates.includes(k));const avg=workers.length?workers.reduce((sum,x)=>sum+(Number(x.days?.[k]?.earnings)||0),0)/workers.length:0;const own=Number(user.days?.[k]?.earnings)||0;if(!workers.length||avg<=0||!user.workDates.includes(k)||own>avg*0.9)break;belowRun++;}}
   if(belowRun===3) await secretAward("huzhe_no_stabilno",dayKey);
   // Цель достигнута до 18:00: проверяем время записей заработка за этот день.
   if(dailyGoal>0){
@@ -10610,13 +10610,13 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase="in
   if((Number(activity.goalChanges)||0)>=10) await secretAward("filosof",dayKey);
   if(user.dailyGoalHistory?.[dayKey]?.changedAfterComplete) await secretAward("peredumal",dayKey);
   // Метадостижения считаются по всем обычным и скрытым наградам.
-  const awardsToday=userAwards.filter(x=>String(x.periodKey)===dayKey || String(x.earnedAt||"").startsWith(dayKey));
-  const newToday=newAwards.filter(x=>String(x.userId)===String(userId) && (x.periodKey===dayKey || String(x.earnedAt||"").startsWith(dayKey)));
+  const awardsToday=userAwards.filter(x=>String(x.periodKey)===dayKey || String(x.earnedDate||x.earnedAt||"").slice(0,10)===dayKey);
+  const newToday=newAwards.filter(x=>String(x.userId)===String(userId) && (x.periodKey===dayKey || String(x.earnedDate||x.earnedAt||"").slice(0,10)===dayKey));
   if(awardsToday.length+newToday.length>=3) await secretAward("tri_za_den",dayKey);
   if(awardsToday.length+newToday.length>=5) await secretAward("pyat_za_smenu",dayKey);
   const weekStart=new Date(dayKey+"T00:00:00Z");weekStart.setUTCDate(weekStart.getUTCDate()-((weekday+6)%7));
   const weekDates=new Set(Array.from({length:7},(_,i)=>{const d=new Date(weekStart);d.setUTCDate(d.getUTCDate()+i);return finalEarningsISODate(d);}));
-  const achievementDays=new Set(userAwards.map(x=>String(x.earnedAt||"").slice(0,10)).filter(x=>weekDates.has(x)));
+  const achievementDays=new Set(userAwards.map(x=>String(x.earnedDate||x.earnedAt||"").slice(0,10)).filter(x=>weekDates.has(x)));
   for(const x of newToday) achievementDays.add(dayKey);
   if(achievementDays.size>=7) await secretAward("ohotnik_za_achivkami",weekKey);
 
@@ -10662,7 +10662,7 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase="in
     const teamEarnings=[...snapshot.users.values()].reduce((n,u)=>n+(u.monthTotal||0),0);
     const teamAvg=teamWorkdays?teamEarnings/teamWorkdays:0;
     const personalAvg=user.monthWorkdays?user.monthTotal/user.monthWorkdays:0;
-    if(Math.round(personalAvg*100)===Math.round(teamAvg*100)) await secretAward("zolotaya_seredina",monthKey);
+    if(teamAvg>0 && Math.round(personalAvg*100)===Math.round(teamAvg*100)) await secretAward("zolotaya_seredina",monthKey);
     const priorMonth = new Date(Date.UTC(todayDate.getUTCFullYear(),todayDate.getUTCMonth()-1,1));
     const priorKey=finalEarningsMonthKey(priorMonth);
     const twoMonthsAgo = new Date(Date.UTC(todayDate.getUTCFullYear(),todayDate.getUTCMonth()-2,1));
