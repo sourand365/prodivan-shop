@@ -10560,7 +10560,7 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase="in
   const userAwards = allAwards.filter(x=>String(x.userId)===String(userId));
   const secretAwards = userAwards.filter(x=>V3_SECRET_ACHIEVEMENTS.some(m=>m.id===x.achievementId));
   const dayRows = Object.entries(user.days).sort((a,b)=>a[0].localeCompare(b[0]));
-  const workRows = dayRows.filter(([d,x)=>(Number(x.earnings)||0)+(Number(x.tea)||0)>0);
+  const workRows = dayRows.filter(([d,x])=>(Number(x.earnings)||0)+(Number(x.tea)||0)>0);
   const tipRecords = (snapshot.state.records||[]).filter(x=>x && x.type==="tea" && !x.canceledAt && String(x.userId)===String(userId) && String(x.dateKey)>=V3_ACHIEVEMENT_START_DATE);
   const tipTotal = Object.values(user.days).reduce((n,row)=>n+(Number(row.tea)||0),0);
   const tipCount = tipRecords.length;
@@ -10639,7 +10639,7 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase="in
   if(goalPercent>=300) await secretAward("ebanutiiy",dayKey);
   if(user.monthGoal>0 && user.monthGoalPercent>=150) await secretAward("nahuy_plan",monthKey);
   if(user.monthGoal>0 && user.monthGoalPercent>=100 && Number(dayKey.slice(8,10))<20) await secretAward("dosrochno",monthKey);
-  if(user.monthGoal>0 && user.monthGoalPercent>=100 && user.isMonthEnd) {
+  if(user.monthGoal>0 && user.monthGoalPercent>=100) {
     const priorMonth = new Date(Date.UTC(todayDate.getUTCFullYear(),todayDate.getUTCMonth()-1,1));
     const priorKey = finalEarningsMonthKey(priorMonth);
     const twoMonthsAgo = new Date(Date.UTC(todayDate.getUTCFullYear(),todayDate.getUTCMonth()-2,1));
@@ -10687,9 +10687,12 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase="in
     const sorted=[...snapshot.users.values()].map(x=>({id:x.userId,total:x.weekTotal||0})).sort((a,b)=>b.total-a.total);
     if(sorted[0]?.id!==String(userId) && sorted[0]?.total-(user.weekTotal||0)<500 && sorted[0]?.total>(user.weekTotal||0)) await secretAward("dyhanie_v_spinu",weekKey);
   }
-  if(userAwards.length>=49) await secretAward("polsotni","all");
-  if(userAwards.length>=99) await secretAward("sotka_dostizheniy","all");
-  if(secretAwards.length>=24) await secretAward("sekretnyi_agent","all");
+  const pendingAwards=newAwards.filter(x=>String(x.userId)===String(userId));
+  const totalAwards=userAwards.length+pendingAwards.filter(x=>!userAwards.some(a=>a.awardKey===x.awardKey)).length;
+  const totalSecret=secretAwards.length+pendingAwards.filter(x=>V3_SECRET_ACHIEVEMENTS.some(m=>m.id===x.achievementId)&&!userAwards.some(a=>a.awardKey===x.awardKey)).length;
+  if(totalAwards>=50) await secretAward("polsotni","all");
+  if(totalAwards>=100) await secretAward("sotka_dostizheniy","all");
+  if(totalSecret>=25) await secretAward("sekretnyi_agent","all");
 
 }
 
