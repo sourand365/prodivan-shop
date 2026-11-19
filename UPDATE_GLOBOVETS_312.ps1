@@ -41,7 +41,7 @@ if ($LASTEXITCODE -ge 8) {
 $hadLock = Test-Path (Join-Path $root 'package-lock.json')
 $temp = Join-Path $env:TEMP ("globovets-update-" + $stamp)
 New-Item -ItemType Directory -Path $temp -Force | Out-Null
-$repoPathEncoded = '%D0%93%D0%BB%D0%BE%D0%B2%D0%B5%D1%86%203.1.2'
+$repoPathEncoded = 'Глобовец%203.1.2'
 
 try {
   Write-Host 'Downloading Globovets 3.1.2 files from GitHub (raw)...' -ForegroundColor Yellow
