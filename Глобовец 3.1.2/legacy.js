@@ -10076,7 +10076,7 @@ const V3_ACHIEVEMENTS = [
     "id": "absolyutny_rab",
     "name": "Абсолютный раб",
     "description": "Выполнить дневную цель 20 дней подряд",
-    "repeat": "day"
+    "repeat": "once"
   },
 ];
 const V3_TITLES = [
@@ -10574,7 +10574,7 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase="in
   if(weekday===5 && dayOfMonth===13 && (Number(user.today.total)||0)>0) await secretAward("pyatnitsa_13",dayKey);
   const dayRank=[...snapshot.users.values()].map(x=>({id:x.userId,total:Number(x.days?.[dayKey]?.earnings)||0})).sort((a,b)=>b.total-a.total);
   if(dayRank[0]?.id===String(userId) && dayRank[0]?.total>0 && dayRank[1]?.total>0 && dayRank[0].total>=dayRank[1].total*2) await secretAward("otryv_suka",dayKey);
-  if(dayRank[0]?.id===String(userId) && dayRank[0]?.total>0) {
+  if(dayRank[0]?.total>0 && Number(user.days?.[dayKey]?.earnings)===dayRank[0].total) {
     let topRun=0;
     for(let n=0;n<10;n++){const d=new Date(dayKey+"T00:00:00Z");d.setUTCDate(d.getUTCDate()-n);const k=finalEarningsISODate(d);const ranking=[...snapshot.users.values()].map(x=>({id:x.userId,total:Number(x.days?.[k]?.earnings)||0})).sort((a,b)=>b.total-a.total);if(ranking[0]?.id===String(userId)&&ranking[0]?.total>0)topRun++;else break;}
     if(topRun===10) await secretAward("vechnyi_top","all");
@@ -10592,9 +10592,9 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase="in
   // Командное среднее за день: общий заработок / общее число курьерских смен.
   const dayWorkers=[...snapshot.users.values()].filter(x=>x.workDates.includes(dayKey));
   const teamDayAverage=dayWorkers.length?dayWorkers.reduce((n,x)=>n+(Number(x.days?.[dayKey]?.earnings)||0),0)/dayWorkers.length:0;
-  const belowTeamAverage=dayWorkers.length>0 && daily>0 && daily<=teamDayAverage*0.9;
+  const belowTeamAverage=dayWorkers.length>0 && workedToday && daily<=teamDayAverage*0.9;
   let belowRun=belowTeamAverage?1:0;
-  if(belowTeamAverage){for(let n=1;n<3;n++){const dt=new Date(dayKey+"T00:00:00Z");dt.setUTCDate(dt.getUTCDate()-n);const k=finalEarningsISODate(dt);const workers=[...snapshot.users.values()].filter(x=>x.workDates.includes(k));const avg=workers.length?workers.reduce((sum,x)=>sum+(Number(x.days?.[k]?.earnings)||0),0)/workers.length:0;const own=Number(user.days?.[k]?.earnings)||0;if(!workers.length||!own||own>avg*0.9)break;belowRun++;}}
+  if(belowTeamAverage){for(let n=1;n<3;n++){const dt=new Date(dayKey+"T00:00:00Z");dt.setUTCDate(dt.getUTCDate()-n);const k=finalEarningsISODate(dt);const workers=[...snapshot.users.values()].filter(x=>x.workDates.includes(k));const avg=workers.length?workers.reduce((sum,x)=>sum+(Number(x.days?.[k]?.earnings)||0),0)/workers.length:0;const own=Number(user.days?.[k]?.earnings)||0;if(!workers.length||!user.workDates.includes(k)||own>avg*0.9)break;belowRun++;}}
   if(belowRun===3) await secretAward("huzhe_no_stabilno",dayKey);
   // Цель достигнута до 18:00: проверяем время записей заработка за этот день.
   if(dailyGoal>0){
@@ -10851,7 +10851,7 @@ bot.action(/^v3_ach_([a-z0-9_]+)$/,async ctx=>{
   if(!meta || meta.secret){await ctx.answerCbQuery("Это секретная награда");return;}
   const state=await v3LoadEarningsState(),award=(state.achievements||[]).find(x=>String(x.userId)===String(ctx.from.id)&&x.achievementId===id);
   await ctx.answerCbQuery();
-  await ctx.reply("🏅 "+meta.name+"\n\n"+meta.description+"\n\nСтатус: "+(award?"Получено ✅":"Пока не получено ⚫")+(award?"\nДата: "+String(award.earnedAt).slice(0,10):""));
+  await ctx.reply("🏅 "+meta.name+"\n\n"+meta.description+"\n\nСтатус: "+(award?"Получено ✅":"Пока не получено ⚫")+(award?"\nДата: "+String(award.earnedDate||award.earnedAt||"").slice(0,10):""));
 });
 
 bot.hears(/^топ достижений$/i,async ctx=>{
