@@ -9709,11 +9709,16 @@ async function v3SendProgress(isFinal = false) {
 }
 
 let v3DailyTimerStarted = false;
+let v3AchievementBackfillStarted = false;
 function v3StartDailyTimer() {
   if (v3DailyTimerStarted) return;
   v3DailyTimerStarted = true;
   setInterval(async () => {
     try {
+      if(!v3AchievementBackfillStarted){
+        v3AchievementBackfillStarted=true;
+        await v3EvaluateAllAchievements("instant");
+      }
       const parts = new Intl.DateTimeFormat("en-GB",{timeZone:TIMEZONE,weekday:"short",hour:"2-digit",minute:"2-digit",hour12:false}).formatToParts(new Date());
       const get = type => parts.find(x => x.type === type)?.value;
       const hour = Number(get("hour"));
