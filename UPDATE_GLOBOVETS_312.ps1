@@ -41,9 +41,7 @@ if ($LASTEXITCODE -ge 8) {
 $hadLock = Test-Path (Join-Path $root 'package-lock.json')
 $temp = Join-Path $env:TEMP ("globovets-update-" + $stamp)
 New-Item -ItemType Directory -Path $temp -Force | Out-Null
-$folderUtf8 = [byte[]]@(0xD0,0x93,0xD0,0xBB,0xD0,0xBE,0xD0,0xB1,0xD0,0xBE,0xD0,0xB2,0xD0,0xB5,0xD1,0x86,0x20,0x33,0x2E,0x31,0x2E,0x32)
-$repoFolder = [System.Text.Encoding]::UTF8.GetString($folderUtf8)
-$repoPathEncoded = [System.Uri]::EscapeDataString($repoFolder)
+$repoPathEncoded = 'Globovets-3.1.2'
 
 try {
   Write-Host 'Downloading Globovets 3.1.2 files from GitHub (raw)...' -ForegroundColor Yellow
