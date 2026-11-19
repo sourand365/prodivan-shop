@@ -10010,25 +10010,25 @@ const V3_ACHIEVEMENTS = [
   {
     "id": "chainik",
     "name": "Чайник",
-    "description": "2 000 грн чаевых за один день",
+    "description": "Больше 2 000 грн чаевых за день",
     "repeat": "day"
   },
   {
     "id": "shlyuha_klienta",
     "name": "Шлюшка клиента",
-    "description": "2 000 грн чаевых одним начислением",
+    "description": "Больше 2 000 грн чаевых одним начислением",
     "repeat": "once"
   },
   {
     "id": "pidaras",
     "name": "Пидарас",
-    "description": "5 000 грн чаевых за один день",
+    "description": "Больше 5 000 грн чаевых за день",
     "repeat": "day"
   },
   {
     "id": "otsosal_klientu",
     "name": "Отсосал клиенту",
-    "description": "Получить 1 000 грн чаевых одним начислением",
+    "description": "Одним начислением больше 1 000, но не больше 2 000 грн чаевых",
     "repeat": "once"
   },
   {
@@ -10174,7 +10174,7 @@ const V3_SECRET_ACHIEVEMENTS = [
   {
     "id": "statistik",
     "name": "Статистик",
-    "description": "Открыть статистику 10 раз за день",
+    "description": "10 раз открыть топ чай, топ неделю, топ месяц, топ день, мой день, моя неделя или мой месяц за день",
     "secret": true
   },
   {
@@ -10186,7 +10186,7 @@ const V3_SECRET_ACHIEVEMENTS = [
   {
     "id": "zadrot_bota",
     "name": "Задрот бота",
-    "description": "Выполнить 30 команд за день",
+    "description": "Выполнить 30 распознаваемых команд бота за день",
     "secret": true
   },
   {
@@ -10505,7 +10505,7 @@ async function v3AchievementGrant(snapshot,userId,achievementId,periodKey,newAwa
 }
 
 const V3_ACHIEVEMENT_PHASES = {
-  instant: new Set(["denezhny_dozhd","denezhny_meshok","pervyi_vyhod","trudyaga","bez_otdyha","zhelezny_chelovek","veteran","pervye_500","kasar","chainik","shlyuha_klienta","pidaras","otsosal_klientu","chainaya_imperiya","rab_100","perevypolnil_plan","bez_ostanovki","rab_mesyatsa","na_kurazhe","absolyutny_rab","novogodniy_yobar","pyatnitsa_13","utrenniy_yobar","tysyachnyi_klient","skromnyaga","mechtatel","statistik","zadrot_bota","filosof","pervaya_kaplya","sotenka","sotyi_klient","chainyi_fontan","dvesti_tysyach_chaya","million_chaya","peredumal","kazhdyi_den_kak_nado","vyebannyi_zhiznyu","vernulsya","ebanutiiy","nahuy_plan","dosrochno","zaebis_tri_raza","polsotni","sotka_dostizheniy","sekretnyi_agent","tri_za_den","pyat_za_smenu","ohotnik_za_achivkami"]),
+  instant: new Set(["lentyay","denezhny_dozhd","denezhny_meshok","pervyi_vyhod","trudyaga","bez_otdyha","zhelezny_chelovek","veteran","pervye_500","kasar","chainik","shlyuha_klienta","pidaras","otsosal_klientu","chainaya_imperiya","rab_100","perevypolnil_plan","bez_ostanovki","rab_mesyatsa","na_kurazhe","absolyutny_rab","novogodniy_yobar","pyatnitsa_13","utrenniy_yobar","tysyachnyi_klient","skromnyaga","mechtatel","statistik","zadrot_bota","filosof","pervaya_kaplya","sotenka","sotyi_klient","chainyi_fontan","dvesti_tysyach_chaya","million_chaya","peredumal","kazhdyi_den_kak_nado","vyebannyi_zhiznyu","vernulsya","ebanutiiy","nahuy_plan","dosrochno","zaebis_tri_raza","polsotni","sotka_dostizheniy","sekretnyi_agent","tri_za_den","pyat_za_smenu","ohotnik_za_achivkami"]),
   daily: new Set(["dvushka","korol_smeny","zhirny_kush","tri_topora","kopeika_k_kopeike","huzhe_zarplaty","zerkalo","dyavolskiy_den","otryv_suka","vechnyi_top","bliznetsy","bez_plana","lentyay","fartovaya_grivna","luchshe_sebya_vchera","huzhe_no_stabilno","tot_zhe_den","eho"]),
   weekly: new Set(["dyhanie_v_spinu"]),
   monthly: new Set(["mashina","zolotaya_seredina","skachok","obval"])
@@ -10584,15 +10584,15 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase="in
   for(const [date,entry] of Object.entries(user.days)){const dt=finalEarningsParseDate(date);if(dt && dt.getUTCDay()===weekday && (weekday===1||weekday===6)) weekdayRecord=Math.max(weekdayRecord,Number(entry.earnings)||0);}
   // Рекорды понедельников и суббот обрабатываются отдельной системой званий.
   // Командное среднее за день: общий заработок / общее число курьерских смен.
-  const dayWorkers=[...snapshot.users.values()].filter(x=>(Number(x.days?.[dayKey]?.earnings)||0)>0);
+  const dayWorkers=[...snapshot.users.values()].filter(x=>x.workDates.includes(dayKey));
   const teamDayAverage=dayWorkers.length?dayWorkers.reduce((n,x)=>n+(Number(x.days?.[dayKey]?.earnings)||0),0)/dayWorkers.length:0;
   const belowTeamAverage=dayWorkers.length>0 && daily>0 && daily<=teamDayAverage*0.9;
   let belowRun=belowTeamAverage?1:0;
-  if(belowTeamAverage){for(let n=1;n<3;n++){const dt=new Date(dayKey+"T00:00:00Z");dt.setUTCDate(dt.getUTCDate()-n);const k=finalEarningsISODate(dt);const workers=[...snapshot.users.values()].filter(x=>(Number(x.days?.[k]?.earnings)||0)>0);const avg=workers.length?workers.reduce((sum,x)=>sum+(Number(x.days?.[k]?.earnings)||0),0)/workers.length:0;const own=Number(user.days?.[k]?.earnings)||0;if(!workers.length||!own||own>avg*0.9)break;belowRun++;}}
+  if(belowTeamAverage){for(let n=1;n<3;n++){const dt=new Date(dayKey+"T00:00:00Z");dt.setUTCDate(dt.getUTCDate()-n);const k=finalEarningsISODate(dt);const workers=[...snapshot.users.values()].filter(x=>x.workDates.includes(k));const avg=workers.length?workers.reduce((sum,x)=>sum+(Number(x.days?.[k]?.earnings)||0),0)/workers.length:0;const own=Number(user.days?.[k]?.earnings)||0;if(!workers.length||!own||own>avg*0.9)break;belowRun++;}}
   if(belowRun===3) await secretAward("huzhe_no_stabilno",dayKey);
   // Цель достигнута до 18:00: проверяем время записей заработка за этот день.
   if(dailyGoal>0){
-    const timed=(snapshot.state.records||[]).filter(x=>x && !x.canceledAt && String(x.userId)===String(userId) && x.dateKey===dayKey && x.type!=="tea" && x.createdAt);
+    const timed=(snapshot.state.records||[]).filter(x=>x && !x.canceledAt && String(x.userId)===String(userId) && x.dateKey===dayKey && x.createdAt);
     let sumBefore18=0;
     for(const rec of timed.sort((a,b)=>String(a.createdAt).localeCompare(String(b.createdAt)))){const dt=new Date(rec.createdAt);const parts=new Intl.DateTimeFormat("en-GB",{timeZone:TIMEZONE,hour:"2-digit",minute:"2-digit",hour12:false}).formatToParts(dt);const hh=Number(parts.find(x=>x.type==="hour")?.value);if(hh<18)sumBefore18+=Number(rec.amount)||0;}
     if(sumBefore18>=dailyGoal) await secretAward("utrenniy_yobar",dayKey);
@@ -10671,9 +10671,9 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase="in
   }
   const yesterday=new Date(today+"T00:00:00Z");yesterday.setUTCDate(yesterday.getUTCDate()-1);
   const yISO=finalEarningsISODate(yesterday);
-  if(user.days[yISO] && daily===user.days[yISO].earnings) await secretAward("bliznetsy",dayKey);
+  if(daily>0 && Number(user.days[yISO]?.earnings)>0 && daily===user.days[yISO].earnings) await secretAward("bliznetsy",dayKey);
   if(user.days[yISO] && daily>user.days[yISO].earnings) {
-    let rising=1,cur=new Date(today+"T00:00:00Z");
+    let rising=1,cur=new Date(dayKey+"T00:00:00Z");
     for(let j=1;j<5;j++){cur.setUTCDate(cur.getUTCDate()-1);const d=finalEarningsISODate(cur);const p=new Date(cur);p.setUTCDate(p.getUTCDate()-1);const prev=finalEarningsISODate(p);if((user.days[d]?.earnings||0)>(user.days[prev]?.earnings||0))rising++;else break;}
     if(rising===5) await secretAward("luchshe_sebya_vchera",dayKey);
   }
@@ -10682,10 +10682,10 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase="in
     const priorWorks=user.workDates.filter(d=>d<dayKey);
     const lastPrior=priorWorks[priorWorks.length-1];
     const gap=lastPrior?Math.round((Date.parse(dayKey+"T00:00:00Z")-Date.parse(lastPrior+"T00:00:00Z"))/86400000):0;
-    if(lastPrior && daily>0 && gap>=8) await secretAward("vernulsya",dayKey);
-    if(lastPrior && !user.days[dayKey]?.earnings && gap>=7) await secretAward("lentyay",dayKey);
+    if(lastPrior && workedToday && gap>=8) await secretAward("vernulsya",dayKey);
+    if(lastPrior && !workedToday && gap>=7) await secretAward("lentyay",dayKey);
   }
-  if(daily>0 && !Number(user.dailyGoalHistory?.[dayKey]?.target)) await secretAward("bez_plana",dayKey);
+  if(workedToday && !Number(user.dailyGoalHistory?.[dayKey]?.target)) await secretAward("bez_plana",dayKey);
   if(user.weekTotal>0) {
     const sorted=[...snapshot.users.values()].map(x=>({id:x.userId,total:x.weekTotal||0})).sort((a,b)=>b.total-a.total);
     if(sorted[0]?.id!==String(userId) && sorted[0]?.total-(user.weekTotal||0)<500 && sorted[0]?.total>(user.weekTotal||0)) await secretAward("dyhanie_v_spinu",weekKey);
