@@ -10520,6 +10520,7 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase="in
   const todayDate=finalEarningsParseDate(dayKey);
   const daily=user.today.earnings, tea=user.today.tea;
   const goalDaily=user.today.total;
+  const workedToday=(Number(user.today.total)||0)>0;
   if(daily>2000) await award("dvushka",dayKey);
   if(daily>10000) await award("korol_smeny",dayKey);
   if(daily>5000) await award("zhirny_kush",dayKey);
