@@ -9766,7 +9766,8 @@ bot.hears(/^(?:логи|запись)\s*\((.+?)\)(?:\s+\(?(\d{2}[./]\d{2}[./]\d{
 bot.hears(/^отмена\s*\((.+?)\)(?:\s+(\d+))?$/i, async ctx => {
   if (!isAdmin(ctx)) return ctx.reply("Нет доступа ❌");
   const name = ctx.match[1].trim();
-  const requested = ctx.match[2] ? Number(ctx.match[2]) : null;
+  const requested = ctx.match[2] !== undefined ? Number(ctx.match[2]) : null;
+  if(requested!==null && (!Number.isInteger(requested)||requested<1))return ctx.reply("❌ Номер записи должен быть положительным числом.");
   const state = await v3LoadEarningsState();
   const user = Object.entries(state.users || {}).find(([id,u]) => String(u?.name || "").trim().toLowerCase() === name.toLowerCase());
   if (!user) return ctx.reply("❌ Курьер не найден: " + name);
@@ -9774,19 +9775,19 @@ bot.hears(/^отмена\s*\((.+?)\)(?:\s+(\d+))?$/i, async ctx => {
   const adminId=String(ctx.from.id);
   const context=state.adminLogContexts?.[adminId];
   let rows=[],record=null,index=-1;
-  if(requested && context && String(context.userId)===String(userId)){
+  if(requested!==null && context && String(context.userId)===String(userId)){
     index=requested-1;
     const recordId=context.recordIds?.[index];
     record=(state.records||[]).find(r=>r.id===recordId && String(r.userId)===String(userId) && !r.canceledAt);
     if(!record)return ctx.reply("❌ Такой активной записи нет в последнем списке логов. Сначала вызови «Логи ("+name+") (дата)» ещё раз.");
   }else{
-    if(requested && context && String(context.userId)!==String(userId)) return ctx.reply("❌ Последний список логов открыт для другого курьера. Сначала вызови «Логи ("+name+") (дата)».");
+    if(requested!==null && context && String(context.userId)!==String(userId)) return ctx.reply("❌ Последний список логов открыт для другого курьера. Сначала вызови «Логи ("+name+") (дата)».");
     const today=v3DateISO(finalEarningsToday());
     rows=(state.records||[])
       .filter(r=>String(r.userId)===String(userId)&&r.dateKey===today&&!r.canceledAt)
       .sort((a,b)=>String(a.createdAt||"").localeCompare(String(b.createdAt||""))||String(a.id).localeCompare(String(b.id)));
     if(!rows.length)return ctx.reply("❌ Нет активных записей за сегодня.");
-    index=requested?requested-1:rows.length-1;
+    index=requested!==null?requested-1:rows.length-1;
     if(!Number.isInteger(index)||index<0||index>=rows.length)return ctx.reply("❌ Такой записи нет. Используй «Логи ("+name+") (дата)» для списка.");
     record=rows[index];
   }
