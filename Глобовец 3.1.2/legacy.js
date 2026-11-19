@@ -10749,8 +10749,14 @@ function v3EvaluateTitles(snapshot,phase) {
   state.titles=state.titles||{};
   const events=[];
   const setTitle=(id,value,holders,periodKey,resetPeriod=false)=>{
-    if(!(value>0))return;
     const old=state.titles[id]||{recordValue:0,holders:[]};
+    if(!(value>0)){
+      if(resetPeriod && state.titles[id] && (old.periodKey!==periodKey || Number(old.recordValue||0)>0)){
+        state.titles[id]={recordValue:0,holders:[],periodKey,updatedAt:new Date().toISOString()};
+        if((old.holders||[]).length){const meta=V3_TITLES.find(x=>x.id===id);events.push({id,name:meta?.name||id,value:0,holders:[],periodKey});}
+      }
+      return;
+    }
     let next;
     if(resetPeriod || value>Number(old.recordValue||0)){
       next={recordValue:value,holders,periodKey,updatedAt:new Date().toISOString()};
@@ -10793,8 +10799,8 @@ async function v3NotifyTitleEvents(events) {
   catch(error){console.error("V3 title lookup:",error.message);}
   if(!chatId)return;
   for(const event of events){
-    const names=event.holders.map(x=>x.name||"Курьер").join(", ");
-    const message="👑 ЗВАНИЕ ПЕРЕХОДИТ!\n\n🏆 "+event.name.toUpperCase()+"\n\n"+names+"\n\nРезультат: "+event.value+" грн"+
+    const names=event.holders.length?event.holders.map(x=>x.name||"Курьер").join(", "):"Пока нет обладателя";
+    const message="👑 ЗВАНИЕ ОБНОВЛЕНО!\n\n🏆 "+event.name.toUpperCase()+"\n\n"+names+(event.value>0?"\n\nРезультат: "+event.value+" грн":"")+
       (event.holders.length>1?"\n🤝 Одинаковый результат — звание у всех лидеров.":"");
     try{await bot.telegram.sendMessage(chatId,message);}
     catch(error){console.error("V3 title notification:",error.message);}
@@ -10848,7 +10854,7 @@ bot.hears(/^достижения$/i,async ctx=>{
   const ordinary=V3_ACHIEVEMENTS.map((x,i)=>{const a=earned.filter(y=>y.achievementId===x.id).sort((u,v)=>String(v.earnedAt).localeCompare(String(u.earnedAt)))[0];return (i+1)+". "+(a?"🟡":"⚫")+" "+x.name+(a?" — "+v3AchievementDate(a):"");});
   const hidden=V3_SECRET_ACHIEVEMENTS.filter(x=>earned.some(a=>a.achievementId===x.id)).length;
   const keyboard={inline_keyboard:V3_ACHIEVEMENTS.map(x=>[{text:(earned.some(a=>a.achievementId===x.id)?"🏅 ":"🔒 ")+x.name,callback_data:"v3_ach_"+x.id}]).concat([[{text:"🟣 Скрытые достижения ("+hidden+"/"+V3_SECRET_ACHIEVEMENTS.length+")",callback_data:"v3_ach_hidden"}]])};
-  const titleLines=Object.entries(state.titles||{}).map(([id,t])=>{const meta=V3_TITLES.find(x=>x.id===id);return meta?"👑 "+meta.name+": "+(t.holders||[]).map(h=>h.name).join(", "):null;}).filter(Boolean);
+  const titleLines=Object.entries(state.titles||{}).filter(([id,t])=>(t.holders||[]).length>0).map(([id,t])=>{const meta=V3_TITLES.find(x=>x.id===id);return meta?"👑 "+meta.name+": "+(t.holders||[]).map(h=>h.name).join(", "):null;}).filter(Boolean);
   await ctx.reply("🏆 ДОСТИЖЕНИЯ\n━━━━━━━━━━━━━━\n🟡 ОБЫЧНЫЕ ("+earned.filter(a=>V3_ACHIEVEMENTS.some(x=>x.id===a.achievementId)).length+"/"+V3_ACHIEVEMENTS.length+")\n"+ordinary.join("\n")+"\n\n🟣 Скрытые: "+hidden+"/"+V3_SECRET_ACHIEVEMENTS.length+"\nНераскрытые секреты не показываются."+(titleLines.length?"\n\n👑 ЗВАНИЯ\n"+titleLines.join("\n"):""),{reply_markup:keyboard});
 });
 bot.action("v3_ach_hidden",async ctx=>{
