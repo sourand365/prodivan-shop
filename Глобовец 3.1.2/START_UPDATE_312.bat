@@ -6,7 +6,7 @@ echo === GLOBOVETS 3.1.2 UPDATE ===
 echo.
 set "SCRIPT=%TEMP%\UPDATE_GLOBOVETS_312.ps1"
 echo Downloading the 3.1.2 updater...
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/sourand365/prodivan-shop/main/UPDATE_GLOBOVETS_312.ps1' -OutFile $env:TEMP\UPDATE_GLOBOVETS_312.ps1"
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/sourand365/prodivan-shop/main/UPDATE_GLOBOVETS_312.ps1?v=20261119a' -OutFile $env:TEMP\UPDATE_GLOBOVETS_312.ps1"
 if errorlevel 1 goto failed
 if not exist "%SCRIPT%" goto failed
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT%"
