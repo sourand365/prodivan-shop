@@ -9763,7 +9763,7 @@ bot.hears(/^(?:логи|запись)\s*\((.+?)\)(?:\s+\(?(\d{2}[./]\d{2}[./]\d{
 });
 
 // Отмена (имя) 2 — отменяет запись из последнего списка логов; без списка — последнюю запись за сегодня.
-bot.hears(/^отмена\s*\((.+?)\)(?:\s+(\d+))?$/i, async ctx => {
+bot.hears(/^отмена\s*\((.+?)\)(?:\s+\(?(\d+)\)?)?$/i, async ctx => {
   if (!isAdmin(ctx)) return ctx.reply("Нет доступа ❌");
   const name = ctx.match[1].trim();
   const requested = ctx.match[2] !== undefined ? Number(ctx.match[2]) : null;
