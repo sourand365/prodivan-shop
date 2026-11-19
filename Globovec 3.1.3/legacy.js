@@ -429,10 +429,10 @@ const DEBT_BASE_AMOUNT = 100;
 const DEBT_REMINDER_HOURS = [14, 23];
 
 function debtDateForAssignment(weekKey, dayKey) {
-  const monday = new Date(String(weekKey) + "T12:00:00");
+  const monday = new Date(String(weekKey) + "T12:00:00Z");
   const offset = DAYS.findIndex(day => day.key === dayKey);
   monday.setDate(monday.getDate() + Math.max(0, offset));
-  return getDateKey(monday);
+  return monday.toISOString().slice(0, 10);
 }
 function ensureDebtState(state) {
   state.debtLedger = state.debtLedger || { entries: [], history: [], reminders: {} };
@@ -504,20 +504,20 @@ function debtSummaryText(state) {
     person.rows.push({ dateKey: item.dateKey, due, paid: item.paid || 0, amount: item.amount });
   }
   const people = [...grouped.values()].sort((a,b) => b.total - a.total);
-  if (!people.length) return "💳 ЗАДОЛЖЕННОСТИ\\n\\nДолгов нет. Все рассчитались! ✅";
-  let message = "💳 ЗАДОЛЖЕННОСТИ\\n━━━━━━━━━━━━━━\\n";
+  if (!people.length) return "💳 ЗАДОЛЖЕННОСТИ\n\nДолгов нет. Все рассчитались! ✅";
+  let message = "💳 ЗАДОЛЖЕННОСТИ\n━━━━━━━━━━━━━━\n";
   for (const person of people) {
-    message += "\\n👤 " + person.name + " — " + person.total + " грн\\n";
-    for (const row of person.rows) message += "• " + row.dateKey.split("-").reverse().join(".") + ": " + row.due + " грн" + (row.paid ? " (оплачено " + row.paid + " из " + row.amount + ")" : "") + "\\n";
+    message += "\n👤 " + person.name + " — " + person.total + " грн\n";
+    for (const row of person.rows) message += "• " + row.dateKey.split("-").reverse().join(".") + ": " + row.due + " грн" + (row.paid ? " (оплачено " + row.paid + " из " + row.amount + ")" : "") + "\n";
   }
-  message += "\\n━━━━━━━━━━━━━━\\n💰 Общий долг: " + people.reduce((sum,p) => sum + p.total, 0) + " грн";
+  message += "\n━━━━━━━━━━━━━━\n💰 Общий долг: " + people.reduce((sum,p) => sum + p.total, 0) + " грн";
   return message;
 }
 bot.hears(/^долги$/i, async ctx => {
   try { const state = await loadState(); await ctx.reply(debtSummaryText(state)); }
   catch (error) { console.error("DEBT LIST ERROR:", error); await ctx.reply("❌ Не удалось загрузить задолженности."); }
 });
-bot.hears(/^оплачено\\s+(.+?)\\s+(\\d+(?:[.,]\\d{1,2})?)\\s*$/i, async ctx => {
+bot.hears(/^оплачено\s+(.+?)\s+(\d+(?:[.,]\d{1,2})?)\s*$/i, async ctx => {
   if (!isAdmin(ctx)) return ctx.reply("Нет доступа ❌");
   const name = ctx.match[1].trim(), amount = Number(ctx.match[2].replace(",", "."));
   if (!name || !Number.isFinite(amount) || amount <= 0) return ctx.reply("Использование: Оплачено Имя Сумма");
@@ -525,7 +525,7 @@ bot.hears(/^оплачено\\s+(.+?)\\s+(\\d+(?:[.,]\\d{1,2})?)\\s*$/i, async c
     const state = await loadState(), result = debtApplyPayment(state, name, amount, ctx.from.id);
     if (!result.ok) return ctx.reply(result.total > 0 ? "❌ Сумма больше текущего долга. Остаток: " + result.total + " грн." : "❌ У этого человека нет открытого долга.");
     await saveState(state);
-    await ctx.reply("✅ Оплата записана: " + name + " — " + amount + " грн.\\nОстаток долга: " + result.remaining + " грн.");
+    await ctx.reply("✅ Оплата записана: " + name + " — " + amount + " грн.\nОстаток долга: " + result.remaining + " грн.");
   } catch (error) { console.error("DEBT PAYMENT ERROR:", error); await ctx.reply("❌ Не удалось записать оплату."); }
 });
 async function checkDebtReminders() {
@@ -4137,8 +4137,8 @@ bot.hears(/^болт$/i, async (ctx) => {
 const SESSION_BOOKING_DB_COLLECTION = "courier-session-booking";
 const SESSION_BOOKING_DB_KEY = "main";
 const SESSION_REMINDERS = [
-  { key: "diamond", hour: 13, minute: 59, text: "💎 ДИАМАНТЫ! Пора набирать сессии! Не упускаем возможность заработать — подключаемся и активно работаем! 💪\\n\\n@Invisiibllee @Aleksandr111020 @swixwx @B_aa_l_d @smurf1108" },
-  { key: "gold", hour: 14, minute: 29, text: "🥇 ЗОЛОТО! Время набирать сессии! Показываем результат, забираем свои показатели и не сбавляем обороты! 🔥\\n\\n@B_aa_l_d @globalist88 @ser99ii" }
+  { key: "diamond", hour: 13, minute: 59, text: "💎 ДИАМАНТЫ! Пора набирать сессии! Не упускаем возможность заработать — подключаемся и активно работаем! 💪\n\n@Invisiibllee @Aleksandr111020 @swixwx @B_aa_l_d @smurf1108" },
+  { key: "gold", hour: 14, minute: 29, text: "🥇 ЗОЛОТО! Время набирать сессии! Показываем результат, забираем свои показатели и не сбавляем обороты! 🔥\n\n@B_aa_l_d @globalist88 @ser99ii" }
 ];
 
 function getKyivDateTimeForSessions() {
