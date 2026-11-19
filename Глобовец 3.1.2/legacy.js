@@ -31,6 +31,7 @@ bot.use(async (ctx,next)=>{
           state.achievementActivity[uid][day].statsOpens=(Number(state.achievementActivity[uid][day].statsOpens)||0)+1;
         }
         await finalEarningsSave(state);
+        await v3CheckAchievements(uid);
       }
     }
   }catch(error){console.error("Achievement activity counter:",error.message);}
@@ -9565,7 +9566,7 @@ async function v3LoadEarningsState() {
   if (!state.v3Sent) state.v3Sent = {};
   if (!Array.isArray(state.achievements)) state.achievements = [];
   if (state.achievementTrackingStart !== V3_ACHIEVEMENT_START_DATE) {
-    state.achievements = [];
+    // Не удаляем историю наград при обновлении версии системы.
     state.achievementTrackingStart = V3_ACHIEVEMENT_START_DATE;
     await finalEarningsSave(state);
   }
@@ -9718,7 +9719,14 @@ function v3StartDailyTimer() {
       const minute = get("minute");
       if (minute !== "00" && minute !== "59") return;
       if (minute === "00" && hour >= 7 && hour <= 22 && (hour - 7) % 3 === 0) await v3SendProgress(false);
-      if (minute === "59" && hour === 23) { await v3SendProgress(true); await v3EvaluateAllAchievements(); }
+      if (minute === "59" && hour === 23) {
+        await v3SendProgress(true);
+        await v3EvaluateAllAchievements("daily");
+        const today=finalEarningsParseDate(v3DateISO(finalEarningsToday()));
+        if(today.getUTCDay()===0) await v3EvaluateAllAchievements("weekly");
+        const tomorrow=new Date(today);tomorrow.setUTCDate(tomorrow.getUTCDate()+1);
+        if(tomorrow.getUTCMonth()!==today.getUTCMonth()) await v3EvaluateAllAchievements("monthly");
+      }
     } catch (error) { console.error("V3 daily timer:", error); }
   }, 20000);
 }
@@ -10454,7 +10462,7 @@ async function v3AchievementBuildSnapshot() {
     user.monthTotal=monthTotal;
     user.monthTea=monthTea;
     user.today=user.days[today] || {earnings:0,tea:0,total:0};
-    user.workDates=Object.keys(user.days).filter(date=>user.days[date].earnings>0).sort();
+    user.workDates=Object.keys(user.days).filter(date=>(Number(user.days[date].earnings)||0)+(Number(user.days[date].tea)||0)>0).sort();
     user.workdayCount=user.workDates.length;
     let streak=0;
     const workSet=new Set(user.workDates);
@@ -10497,22 +10505,30 @@ async function v3AchievementGrant(snapshot,userId,achievementId,periodKey,newAwa
   const awardKey=achievementId+":"+periodKey;
   if(state.achievements.some(x=>x.awardKey===awardKey && String(x.userId)===String(userId))) return;
   const user=snapshot.users.get(String(userId));
-  const award={awardKey,userId:String(userId),name:user?.name||state.users?.[String(userId)]?.name||"Курьер",achievementId,periodKey,earnedAt:new Date().toISOString()};
+  const award={awardKey,userId:String(userId),name:user?.name||state.users?.[String(userId)]?.name||"Курьер",achievementId,periodKey,earnedAt:new Date().toISOString(),earnedDate:snapshot.today};
   state.achievements.push(award);
   newAwards.push(award);
 }
 
-async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
+const V3_ACHIEVEMENT_PHASES = {
+  instant: new Set(["denezhny_dozhd","denezhny_meshok","pervyi_vyhod","trudyaga","bez_otdyha","zhelezny_chelovek","veteran","pervye_500","kasar","chainik","shlyuha_klienta","pidaras","otsosal_klientu","chainaya_imperiya","rab_100","perevypolnil_plan","bez_ostanovki","rab_mesyatsa","na_kurazhe","absolyutny_rab","novogodniy_yobar","pyatnitsa_13","utrenniy_yobar","tysyachnyi_klient","skromnyaga","mechtatel","statistik","zadrot_bota","filosof","pervaya_kaplya","sotenka","sotyi_klient","chainyi_fontan","dvesti_tysyach_chaya","million_chaya","peredumal","kazhdyi_den_kak_nado","vyebannyi_zhiznyu","vernulsya","ebanutiiy","nahuy_plan","dosrochno","zaebis_tri_raza","polsotni","sotka_dostizheniy","sekretnyi_agent","tri_za_den","pyat_za_smenu","ohotnik_za_achivkami"]),
+  daily: new Set(["dvushka","korol_smeny","zhirny_kush","tri_topora","kopeika_k_kopeike","huzhe_zarplaty","zerkalo","dyavolskiy_den","otryv_suka","vechnyi_top","bliznetsy","bez_plana","lentyay","fartovaya_grivna","luchshe_sebya_vchera","huzhe_no_stabilno","tot_zhe_den","eho"]),
+  weekly: new Set(["dyhanie_v_spinu"]),
+  monthly: new Set(["mashina","zolotaya_seredina","skachok","obval"])
+};
+
+async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase="instant") {
+  const allowed=V3_ACHIEVEMENT_PHASES[phase] || new Set();
+  const award=async(id,period)=>{if(allowed.has(id)) await v3AchievementGrant(snapshot,userId,id,period,newAwards);};
   const user=snapshot.users.get(String(userId));
   if(!user) return;
   const dayKey=snapshot.today, weekKey=snapshot.weekKey, monthKey=snapshot.monthKey;
   const todayDate=finalEarningsParseDate(dayKey);
   const daily=user.today.earnings, tea=user.today.tea;
   const goalDaily=user.today.total;
-  const award=async(id,period)=>v3AchievementGrant(snapshot,userId,id,period,newAwards);
-  if(daily>=2000) await award("dvushka",dayKey);
-  if(daily>=10000) await award("korol_smeny",dayKey);
-  if(daily>=5000) await award("zhirny_kush",dayKey);
+  if(daily>2000) await award("dvushka",dayKey);
+  if(daily>10000) await award("korol_smeny",dayKey);
+  if(daily>5000) await award("zhirny_kush",dayKey);
   if(user.weekTotal>=50000) await award("denezhny_dozhd",weekKey);
   if(user.monthTotal>=150000) await award("denezhny_meshok",monthKey);
   if(user.workdayCount>=1) await award("pervyi_vyhod","all");
@@ -10521,18 +10537,19 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
   if(user.workStreak>=20) await award("zhelezny_chelovek","all");
   if(user.isMonthEnd && user.monthWorkdays===user.daysInMonth) await award("mashina",monthKey);
   if(user.workdayCount>=100) await award("veteran","all");
-  if(user.maxSingleTip>=500) await award("pervye_500","all");
-  if(tea>=1000) await award("kasar",dayKey);
-  if(tea>=2000) await award("chainik",dayKey);
-  if(user.maxSingleTip>=2000) await award("shlyuha_klienta","all");
-  if(tea>=5000) await award("pidaras",dayKey);
-  if(user.maxSingleTip>=1000) await award("otsosal_klientu","all");
+  const tipRecordsForUser=(snapshot.state.records||[]).filter(x=>x && x.type==="tea" && !x.canceledAt && String(x.userId)===String(userId) && String(x.dateKey||"")>=V3_ACHIEVEMENT_START_DATE);
+  if(tipRecordsForUser.some(x=>Number(x.amount)===500)) await award("pervye_500","all");
+  if(tea>1000) await award("kasar",dayKey);
+  if(tea>2000) await award("chainik",dayKey);
+  if(user.maxSingleTip>2000) await award("shlyuha_klienta","all");
+  if(tea>5000) await award("pidaras",dayKey);
+  if(user.maxSingleTip>1000 && user.maxSingleTip<=2000) await award("otsosal_klientu","all");
   if(user.monthTea>=30000) await award("chainaya_imperiya",monthKey);
   const dailyGoal=user.todayGoal;
   const goalPercent=dailyGoal>0?goalDaily/dailyGoal*100:0;
   if(goalPercent>=100) await award("rab_100",dayKey);
   if(goalPercent>=150) await award("perevypolnil_plan",dayKey);
-  if(goalPercent>=200) await award("absolyutny_rab",dayKey);
+  if(user.goalStreak>=20) await award("absolyutny_rab","all");
   if(user.goalStreak>=7) await award("bez_ostanovki",dayKey);
   if(user.goalStreak>=3) await award("na_kurazhe",dayKey);
   if(user.monthGoal>0 && user.monthGoalPercent>=100) await award("rab_mesyatsa",monthKey);
@@ -10560,7 +10577,7 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
   if(dayRank[0]?.id===String(userId) && dayRank[0]?.total>0) {
     let topRun=0;
     for(let n=0;n<10;n++){const d=new Date(dayKey+"T00:00:00Z");d.setUTCDate(d.getUTCDate()-n);const k=finalEarningsISODate(d);const ranking=[...snapshot.users.values()].map(x=>({id:x.userId,total:Number(x.days?.[k]?.earnings)||0})).sort((a,b)=>b.total-a.total);if(ranking[0]?.id===String(userId)&&ranking[0]?.total>0)topRun++;else break;}
-    if(topRun>=10) await secretAward("vechnyi_top","all");
+    if(topRun===10) await secretAward("vechnyi_top","all");
   }
   const weekAgo=new Date(dayKey+"T00:00:00Z");weekAgo.setUTCDate(weekAgo.getUTCDate()-7);
   const weekAgoKey=finalEarningsISODate(weekAgo);
@@ -10578,7 +10595,7 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
   const belowTeamAverage=dayWorkers.length>0 && daily>0 && daily<=teamDayAverage*0.9;
   let belowRun=belowTeamAverage?1:0;
   if(belowTeamAverage){for(let n=1;n<3;n++){const dt=new Date(dayKey+"T00:00:00Z");dt.setUTCDate(dt.getUTCDate()-n);const k=finalEarningsISODate(dt);const workers=[...snapshot.users.values()].filter(x=>(Number(x.days?.[k]?.earnings)||0)>0);const avg=workers.length?workers.reduce((sum,x)=>sum+(Number(x.days?.[k]?.earnings)||0),0)/workers.length:0;const own=Number(user.days?.[k]?.earnings)||0;if(!workers.length||!own||own>avg*0.9)break;belowRun++;}}
-  if(belowRun>=3) await secretAward("huzhe_no_stabilno",dayKey);
+  if(belowRun===3) await secretAward("huzhe_no_stabilno",dayKey);
   // Цель достигнута до 18:00: проверяем время записей заработка за этот день.
   if(dailyGoal>0){
     const timed=(snapshot.state.records||[]).filter(x=>x && !x.canceledAt && String(x.userId)===String(userId) && x.dateKey===dayKey && x.type!=="tea" && x.createdAt);
@@ -10655,7 +10672,7 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
   if(user.days[yISO] && daily>user.days[yISO].earnings) {
     let rising=1,cur=new Date(today+"T00:00:00Z");
     for(let j=1;j<5;j++){cur.setUTCDate(cur.getUTCDate()-1);const d=finalEarningsISODate(cur);const p=new Date(cur);p.setUTCDate(p.getUTCDate()-1);const prev=finalEarningsISODate(p);if((user.days[d]?.earnings||0)>(user.days[prev]?.earnings||0))rising++;else break;}
-    if(rising>=5) await secretAward("luchshe_sebya_vchera",dayKey);
+    if(rising===5) await secretAward("luchshe_sebya_vchera",dayKey);
   }
   if(user.workStreak>=365) await secretAward("vyebannyi_zhiznyu","all");
   {
@@ -10677,52 +10694,57 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards) {
 }
 
 async function v3CheckAchievements(userId) {
-  // Все проверки дневных итогов выполняются централизованно в 23:59 по Киеву.
-  // Награда не выдаётся по промежуточной сумме в течение дня.
+  const snapshot=await v3AchievementBuildSnapshot();
+  if(snapshot.state.achievementsEnabled===false)return;
+  const newAwards=[];
+  await v3EvaluateAchievementsForUser(snapshot,String(userId),newAwards,"instant");
+  if(!newAwards.length)return;
+  await finalEarningsSave(snapshot.state);
+  await v3SendAchievementAwards(newAwards);
 }
 
-async function v3EvaluateAllAchievements() {
-  const snapshot=await v3AchievementBuildSnapshot();
-  if(snapshot.state.achievementsEnabled===false) return;
-  const newAwards=[];
-  for(const userId of snapshot.users.keys()) await v3EvaluateAchievementsForUser(snapshot,userId,newAwards);
-  if(!newAwards.length) return;
-  await finalEarningsSave(snapshot.state);
-  let groupChatId = null;
-  try {
-    const sessionChat = await db.collection("courier-session-booking").findOne({ key: "main" });
-    groupChatId = sessionChat?.data?.lastGroupChatId || null;
-  } catch (error) { console.error("V3 achievement group lookup:", error.message); }
-  if (!groupChatId) {
-    console.error("V3 achievement notification: общий чат ещё не сохранён; награды записаны, объявление пропущено.");
-    return;
-  }
+async function v3SendAchievementAwards(newAwards) {
+  if(!newAwards.length)return;
+  let groupChatId=null;
+  try{const chat=await db.collection("courier-session-booking").findOne({key:"main"});groupChatId=chat?.data?.lastGroupChatId||null;}
+  catch(error){console.error("V3 achievement group lookup:",error.message);}
+  if(!groupChatId)return;
   for(const item of newAwards){
-    const meta=v3AchievementGetMeta(item.achievementId);
-    const isSecret=!!meta?.secret;
-    const courierName=(item.name || "Курьер").toUpperCase();
-    const message = item.achievementId==="papa_na_raione"
-      ? "🏆 НОВОЕ ДОСТИЖЕНИЕ!\n\n🔥 ПАПА НА РАЙОНЕ\n\n👑 ПИДАР "+courierName+" ЗАБИРАЕТ СВОЁ!\n\nЭтот ублюдок не просто работал — он разъёбывал месячный рейтинг заработка! 💸\n\nПока остальные нюхали выхлоп, "+courierName+" забрал первое место и показал, кто тут батя, а кто массовка!\n\nРАЙОН ПОД КОНТРОЛЕМ. ОСТАЛЬНЫМ — СОСАТЬ! 🖕🔥"
-      : "🏆 НОВОЕ ДОСТИЖЕНИЕ!\n\n" +
-        (isSecret ? "🟣 СЕКРЕТНОЕ ДОСТИЖЕНИЕ РАСКРЫТО!\n\n" : "🟡 ОБЫЧНОЕ ДОСТИЖЕНИЕ\n\n") +
-        "🔥 " + courierName + " ПОЛУЧАЕТ: «" + (meta?.name || item.achievementId).toUpperCase() + "»\n\n" +
-        (meta?.description || "Так держать!") + "\n\nЕщё один день, когда этот ублюдок доказал, что остальные просто массовка. 💸🔥";
-    try { await bot.telegram.sendMessage(groupChatId,message); }
+    const meta=v3AchievementGetMeta(item.achievementId),isSecret=!!meta?.secret;
+    const message="🏆 НОВОЕ ДОСТИЖЕНИЕ!\n\n"+(isSecret?"🟣 СЕКРЕТНОЕ ДОСТИЖЕНИЕ РАСКРЫТО!\n\n":"🟡 ОБЫЧНОЕ ДОСТИЖЕНИЕ\n\n")+
+      "🔥 "+String(item.name||"Курьер").toUpperCase()+" ПОЛУЧАЕТ: «"+(meta?.name||item.achievementId).toUpperCase()+"»\n\n"+
+      (meta?.description||"Так держать!")+"\n\nЕщё один день, когда этот ублюдок доказал, что остальные просто массовка. 💸🔥";
+    try{await bot.telegram.sendMessage(groupChatId,message);}
     catch(error){console.error("V3 achievement group notification:",groupChatId,error.message);}
   }
 }
+
+async function v3EvaluateAllAchievements(phase="daily") {
+  const snapshot=await v3AchievementBuildSnapshot();
+  const marker="achievements:"+phase+":"+snapshot.today;
+  if(snapshot.state.v3Sent?.[marker])return;
+  if(!snapshot.state.v3Sent)snapshot.state.v3Sent={};
+  const newAwards=[];
+  if(snapshot.state.achievementsEnabled!==false){
+    for(const userId of snapshot.users.keys())await v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase);
+  }
+  snapshot.state.v3Sent[marker]=true;
+  await finalEarningsSave(snapshot.state);
+  await v3SendAchievementAwards(newAwards);
+}
+
 bot.hears(/^мои достижения$/i,async ctx=>{
   const state=await v3LoadEarningsState();
   const mine=(state.achievements||[]).filter(x=>String(x.userId)===String(ctx.from.id)).sort((a,b)=>String(b.earnedAt).localeCompare(String(a.earnedAt)));
   if(!mine.length) return ctx.reply("🏆 ТВОИ ДОСТИЖЕНИЯ\n\nПока нет полученных наград. Выполняй условия — бот сообщит, когда появится первое достижение.");
-  const lines=mine.map((x,i)=>{const meta=v3AchievementGetMeta(x.achievementId);return (i+1)+". 🏅 "+(meta?.name||x.achievementId)+(meta?.repeat==="day"||meta?.repeat==="week"||meta?.repeat==="month"?" — "+x.periodKey:"");});
+  const lines=mine.map((x,i)=>{const meta=v3AchievementGetMeta(x.achievementId);return (i+1)+". 🏅 "+(meta?.name||x.achievementId)+" — "+String(x.earnedDate||x.earnedAt||"").slice(0,10)+(meta?.repeat==="day"||meta?.repeat==="week"||meta?.repeat==="month"?" ("+x.periodKey+")":"");});
   await ctx.reply("🏆 МОИ ДОСТИЖЕНИЯ ("+mine.length+")\n━━━━━━━━━━━━━━\n"+lines.join("\n"));
 });
 
 bot.hears(/^достижения$/i,async ctx=>{
   const state=await v3LoadEarningsState();
   const earned=(state.achievements||[]).filter(x=>String(x.userId)===String(ctx.from.id));
-  const ordinary=V3_ACHIEVEMENTS.map((x,i)=>(i+1)+". "+(earned.some(a=>a.achievementId===x.id)?"🟡":"⚫")+" "+x.name);
+  const ordinary=V3_ACHIEVEMENTS.map((x,i)=>{const a=earned.filter(y=>y.achievementId===x.id).sort((u,v)=>String(v.earnedAt).localeCompare(String(u.earnedAt)))[0];return (i+1)+". "+(a?"🟡":"⚫")+" "+x.name+(a?" — "+String(a.earnedDate||a.earnedAt||"").slice(0,10):"");});
   const hidden=V3_SECRET_ACHIEVEMENTS.filter(x=>earned.some(a=>a.achievementId===x.id)).length;
   const keyboard={inline_keyboard:V3_ACHIEVEMENTS.map(x=>[{text:(earned.some(a=>a.achievementId===x.id)?"🏅 ":"🔒 ")+x.name,callback_data:"v3_ach_"+x.id}]).concat([[{text:"🟣 Скрытые достижения ("+hidden+"/51)",callback_data:"v3_ach_hidden"}]])};
   await ctx.reply("🏆 ДОСТИЖЕНИЯ\n━━━━━━━━━━━━━━\n🟡 ОБЫЧНЫЕ ("+earned.filter(a=>V3_ACHIEVEMENTS.some(x=>x.id===a.achievementId)).length+"/"+V3_ACHIEVEMENTS.length+")\n"+ordinary.join("\n")+"\n\n🟣 Скрытые: "+hidden+"/51\nНераскрытые секреты не показываются.",{reply_markup:keyboard});
