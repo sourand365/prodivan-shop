@@ -9795,7 +9795,7 @@ bot.hears(/^отмена\s*\((.+?)\)(?:\s+(\d+))?$/i, async ctx => {
   freshRecord.canceledBy = String(ctx.from.id);
   freshState.audit.push({ at: freshRecord.canceledAt, action:"cancel", recordId:freshRecord.id, userId:String(userId), name, type:freshRecord.type, amount:freshRecord.amount, by:String(ctx.from.id) });
   await finalEarningsSave(freshState);
-  await v3CheckAchievements(String(userId));
+  await v3CheckAchievements(String(userId),true);
   await ctx.reply("✅ Запись отменена\n\n👤 " + name + "\n№" + (index+1) + " — " + record.amount + " грн");
 });
 
@@ -10716,11 +10716,18 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase="in
 
 }
 
-async function v3CheckAchievements(userId) {
+async function v3CheckAchievements(userId,recheckFinalizedPeriods=false) {
   const snapshot=await v3AchievementBuildSnapshot();
-  if(snapshot.state.achievementsEnabled===false)return;
   const newAwards=[];
-  if(snapshot.state.achievementsEnabled!==false) await v3EvaluateAchievementsForUser(snapshot,String(userId),newAwards,"instant");
+  if(snapshot.state.achievementsEnabled!==false){
+    await v3EvaluateAchievementsForUser(snapshot,String(userId),newAwards,"instant");
+    if(recheckFinalizedPeriods){
+      for(const phase of ["daily","weekly","monthly"]){
+        const marker="achievements:"+phase+":"+snapshot.today;
+        if(snapshot.state.v3Sent?.[marker]) await v3EvaluateAchievementsForUser(snapshot,String(userId),newAwards,phase);
+      }
+    }
+  }
   const titleEvents=v3EvaluateTitles(snapshot,"instant");
   if(!newAwards.length && !titleEvents.length)return;
   await finalEarningsSave(snapshot.state);
