@@ -9716,8 +9716,8 @@ function v3StartDailyTimer() {
   setInterval(async () => {
     try {
       if(!v3AchievementBackfillStarted){
-        v3AchievementBackfillStarted=true;
         await v3EvaluateAllAchievements("instant");
+        v3AchievementBackfillStarted=true;
       }
       const parts = new Intl.DateTimeFormat("en-GB",{timeZone:TIMEZONE,weekday:"short",hour:"2-digit",minute:"2-digit",hour12:false}).formatToParts(new Date());
       const get = type => parts.find(x => x.type === type)?.value;
