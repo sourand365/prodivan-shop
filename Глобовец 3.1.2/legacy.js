@@ -33,6 +33,7 @@ bot.use(async (ctx,next)=>{
         await finalEarningsSave(state);
         await v3CheckAchievements(uid);
       }
+      if(ctx.chat && ["group","supergroup"].includes(ctx.chat.type)) await v3CheckChatAchievement(ctx);
     }
   }catch(error){console.error("Achievement activity counter:",error.message);}
   return next();
@@ -10069,7 +10070,7 @@ const V3_ACHIEVEMENTS = [
   {
     "id": "absolyutny_rab",
     "name": "Абсолютный раб",
-    "description": "Выполнить дневную цель на 200%",
+    "description": "Выполнить дневную цель 20 дней подряд",
     "repeat": "day"
   },
 ];
@@ -10563,8 +10564,8 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase="in
   const dayDate=finalEarningsParseDate(dayKey);
   const weekday=dayDate.getUTCDay();
   const dayOfMonth=dayDate.getUTCDate();
-  if((dayKey.endsWith("-12-31") || dayKey.endsWith("-01-01")) && daily>0) await secretAward("novogodniy_yobar",dayKey);
-  if(weekday===5 && dayOfMonth===13 && daily>0) await secretAward("pyatnitsa_13",dayKey);
+  if((dayKey.endsWith("-12-31") || dayKey.endsWith("-01-01")) && (Number(user.today.total)||0)>0) await secretAward("novogodniy_yobar",dayKey);
+  if(weekday===5 && dayOfMonth===13 && (Number(user.today.total)||0)>0) await secretAward("pyatnitsa_13",dayKey);
   const dayRank=[...snapshot.users.values()].map(x=>({id:x.userId,total:Number(x.days?.[dayKey]?.earnings)||0})).sort((a,b)=>b.total-a.total);
   if(dayRank[0]?.id===String(userId) && dayRank[0]?.total>0 && dayRank[1]?.total>0 && dayRank[0].total>=dayRank[1].total*2) await secretAward("otryv_suka",dayKey);
   if(dayRank[0]?.id===String(userId) && dayRank[0]?.total>0) {
@@ -10632,6 +10633,8 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase="in
   if(goalPercent>=300) await secretAward("ebanutiiy",dayKey);
   if(user.monthGoal>0 && user.monthGoalPercent>=150) await secretAward("nahuy_plan",monthKey);
   if(user.monthGoal>0 && user.monthGoalPercent>=100 && Number(dayKey.slice(8,10))<20) await secretAward("dosrochno",monthKey);
+  const everyRecordedWorkdayHasGoal=workRows.filter(([d])=>d.startsWith(monthKey+"-")).every(([d,row])=>Number(user.dailyGoalHistory?.[d]?.target)>0 && row.total>=Number(user.dailyGoalHistory[d].target));
+  if(everyRecordedWorkdayHasGoal && user.monthWorkdays>0) await secretAward("kazhdyi_den_kak_nado",monthKey);
   if(user.monthGoal>0 && user.monthGoalPercent>=100) {
     const priorMonth = new Date(Date.UTC(todayDate.getUTCFullYear(),todayDate.getUTCMonth()-1,1));
     const priorKey = finalEarningsMonthKey(priorMonth);
@@ -10715,6 +10718,79 @@ async function v3SendAchievementAwards(newAwards) {
   }
 }
 
+function v3EvaluateTitles(snapshot,phase) {
+  const state=snapshot.state;
+  state.titles=state.titles||{};
+  const events=[];
+  const setTitle=(id,value,holders,periodKey,resetPeriod=false)=>{
+    if(!(value>0))return;
+    const old=state.titles[id]||{recordValue:0,holders:[]};
+    let next;
+    if(resetPeriod || value>Number(old.recordValue||0)){
+      next={recordValue:value,holders,periodKey,updatedAt:new Date().toISOString()};
+    }else if(value===Number(old.recordValue||0)){
+      const map=new Map((old.holders||[]).map(x=>[String(x.userId),x]));
+      for(const h of holders)map.set(String(h.userId),h);
+      next={...old,holders:[...map.values()]};
+    }else return;
+    const before=(old.holders||[]).map(x=>String(x.userId)).sort().join(",");
+    const after=next.holders.map(x=>String(x.userId)).sort().join(",");
+    const periodChanged=resetPeriod && old.periodKey!==periodKey;
+    state.titles[id]=next;
+    if(before!==after || periodChanged || value>Number(old.recordValue||0)){
+      const meta=V3_TITLES.find(x=>x.id===id);
+      events.push({id,name:meta?.name||id,value,holders:next.holders,periodKey});
+    }
+  };
+  if(phase==="monthly"){
+    const value=snapshot.maxMonth;
+    const holders=[...snapshot.users.values()].filter(x=>x.monthTotal===value&&value>0).map(x=>({userId:x.userId,name:x.name}));
+    setTitle("papa_na_raione",value,holders,snapshot.monthKey,true);
+  }
+  if(phase==="daily"){
+    const weekday=finalEarningsParseDate(snapshot.today).getUTCDay();
+    const id=weekday===1?"luchshiy_ponedelnik":weekday===6?"luchshaya_subbota":null;
+    if(id){
+      const rows=[...snapshot.users.values()].map(x=>({user:x,value:Number(x.days?.[snapshot.today]?.earnings)||0}));
+      const value=Math.max(0,...rows.map(x=>x.value));
+      const holders=rows.filter(x=>x.value===value&&value>0).map(x=>({userId:x.user.userId,name:x.user.name}));
+      setTitle(id,value,holders,snapshot.today,false);
+    }
+  }
+  return events;
+}
+
+async function v3NotifyTitleEvents(events) {
+  if(!events.length)return;
+  let chatId=null;
+  try{const chat=await db.collection("courier-session-booking").findOne({key:"main"});chatId=chat?.data?.lastGroupChatId||null;}
+  catch(error){console.error("V3 title lookup:",error.message);}
+  if(!chatId)return;
+  for(const event of events){
+    const names=event.holders.map(x=>x.name||"Курьер").join(", ");
+    const message="👑 ЗВАНИЕ ПЕРЕХОДИТ!\n\n🏆 "+event.name.toUpperCase()+"\n\n"+names+"\n\nРезультат: "+event.value+" грн"+
+      (event.holders.length>1?"\n🤝 Одинаковый результат — звание у всех лидеров.":"");
+    try{await bot.telegram.sendMessage(chatId,message);}
+    catch(error){console.error("V3 title notification:",error.message);}
+  }
+}
+
+async function v3CheckChatAchievement(ctx) {
+  if(!ctx?.from?.id || !ctx.chat || !["group","supergroup"].includes(ctx.chat.type))return;
+  const raw=String(ctx.message?.text||"").trim();
+  if(!raw || raw.startsWith("/"))return;
+  const state=await v3LoadEarningsState();
+  if(state.achievementsEnabled===false)return;
+  const userId=String(ctx.from.id);
+  if((state.achievements||[]).some(x=>String(x.userId)===userId&&x.achievementId==="znakomstvo_s_chatom"))return;
+  state.users=state.users||{};
+  state.users[userId]=state.users[userId]||{name:getTelegramDisplayName(ctx)};
+  const snapshot={state,users:new Map([[userId,{userId,name:getTelegramDisplayName(ctx)}]]),today:v3DateISO(finalEarningsToday())};
+  const newAwards=[];
+  await v3AchievementGrant(snapshot,userId,"znakomstvo_s_chatom","all",newAwards);
+  if(newAwards.length){await finalEarningsSave(state);await v3SendAchievementAwards(newAwards);}
+}
+
 async function v3EvaluateAllAchievements(phase="daily") {
   const snapshot=await v3AchievementBuildSnapshot();
   const marker="achievements:"+phase+":"+snapshot.today;
@@ -10724,9 +10800,11 @@ async function v3EvaluateAllAchievements(phase="daily") {
   if(snapshot.state.achievementsEnabled!==false){
     for(const userId of snapshot.users.keys())await v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase);
   }
+  const titleEvents=v3EvaluateTitles(snapshot,phase);
   snapshot.state.v3Sent[marker]=true;
   await finalEarningsSave(snapshot.state);
   await v3SendAchievementAwards(newAwards);
+  await v3NotifyTitleEvents(titleEvents);
 }
 
 bot.hears(/^мои достижения$/i,async ctx=>{
@@ -10767,6 +10845,7 @@ bot.hears(/^топ достижений$/i,async ctx=>{
   const state=await v3LoadEarningsState();
   const counts={};
   for(const award of state.achievements||[]){
+    if(V3_TITLES.some(t=>t.id===award.achievementId))continue;
     const id=String(award.userId);
     if(!counts[id]) counts[id]={name:award.name||state.users?.[id]?.name||"Курьер",count:0};
     counts[id].count++;
