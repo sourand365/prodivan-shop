@@ -423,6 +423,132 @@ function recordAssignmentHistory(state, action, name, dayKey, multiplier = 1) {
 }
 
 // ============================================================
+// 💳 ДОЛГИ ЗА НАЗНАЧЕНИЕ В ТАБЛИЦУ
+// ============================================================
+const DEBT_BASE_AMOUNT = 100;
+const DEBT_REMINDER_HOURS = [14, 23];
+
+function debtDateForAssignment(weekKey, dayKey) {
+  const monday = new Date(String(weekKey) + "T12:00:00");
+  const offset = DAYS.findIndex(day => day.key === dayKey);
+  monday.setDate(monday.getDate() + Math.max(0, offset));
+  return getDateKey(monday);
+}
+function ensureDebtState(state) {
+  state.debtLedger = state.debtLedger || { entries: [], history: [], reminders: {} };
+  if (!Array.isArray(state.debtLedger.entries)) state.debtLedger.entries = [];
+  if (!Array.isArray(state.debtLedger.history)) state.debtLedger.history = [];
+  if (!state.debtLedger.reminders || typeof state.debtLedger.reminders !== "object") state.debtLedger.reminders = {};
+  return state.debtLedger;
+}
+function debtAddOrUpdateAssignment(state, name, dayKey, multiplier, weekKey) {
+  const ledger = ensureDebtState(state);
+  const person = getAssignmentBaseName(name);
+  const dateKey = debtDateForAssignment(weekKey || state.currentWeek?.weekKey || getWeekKey(), dayKey);
+  let entry = ledger.entries.find(item => item.dateKey === dateKey && item.name.toLocaleLowerCase("ru-RU") === person.toLocaleLowerCase("ru-RU"));
+  const amount = DEBT_BASE_AMOUNT * multiplier;
+  if (entry) {
+    const oldAmount = entry.amount;
+    entry.amount = amount;
+    entry.multiplier = multiplier;
+    entry.status = "open";
+    entry.updatedAt = new Date().toISOString();
+    ledger.history.push({ action: "amount_updated", name: person, dateKey, oldAmount, amount, at: new Date().toISOString() });
+  } else {
+    entry = { id: dateKey + ":" + person.toLocaleLowerCase("ru-RU"), name: person, dateKey, amount, paid: 0, status: "open", multiplier, createdAt: new Date().toISOString() };
+    ledger.entries.push(entry);
+    ledger.history.push({ action: "debt_created", name: person, dateKey, amount, multiplier, at: new Date().toISOString() });
+  }
+  return entry;
+}
+function debtCancelAssignment(state, name, dayKey, weekKey) {
+  const ledger = ensureDebtState(state);
+  const person = getAssignmentBaseName(name);
+  const dateKey = debtDateForAssignment(weekKey || state.currentWeek?.weekKey || getWeekKey(), dayKey);
+  const entry = ledger.entries.find(item => item.dateKey === dateKey && item.name.toLocaleLowerCase("ru-RU") === person.toLocaleLowerCase("ru-RU") && item.status === "open");
+  if (!entry) return null;
+  entry.status = "cancelled";
+  entry.cancelledAt = new Date().toISOString();
+  ledger.history.push({ action: "debt_cancelled", name: person, dateKey, amount: entry.amount, paid: entry.paid || 0, at: new Date().toISOString() });
+  return entry;
+}
+function debtApplyPayment(state, name, amount, adminId) {
+  const ledger = ensureDebtState(state);
+  const person = getAssignmentBaseName(name);
+  const rows = ledger.entries.filter(item => item.status === "open" && item.name.toLocaleLowerCase("ru-RU") === person.toLocaleLowerCase("ru-RU") && item.amount > (item.paid || 0)).sort((a,b) => a.dateKey.localeCompare(b.dateKey));
+  const total = rows.reduce((sum,item) => sum + item.amount - (item.paid || 0), 0);
+  if (!rows.length || amount > total) return { ok: false, total };
+  let remaining = amount;
+  const allocations = [];
+  for (const entry of rows) {
+    if (remaining <= 0) break;
+    const due = entry.amount - (entry.paid || 0);
+    const applied = Math.min(due, remaining);
+    entry.paid = (entry.paid || 0) + applied;
+    remaining -= applied;
+    if (entry.paid >= entry.amount) entry.status = "paid";
+    allocations.push({ dateKey: entry.dateKey, amount: applied });
+  }
+  ledger.history.push({ action: "payment", name: person, amount, adminId: String(adminId), allocations, at: new Date().toISOString() });
+  return { ok: true, total, remaining: total - amount };
+}
+function debtSummaryText(state) {
+  const ledger = ensureDebtState(state);
+  const open = ledger.entries.filter(item => item.status === "open" && item.amount > (item.paid || 0));
+  const grouped = new Map();
+  for (const item of open) {
+    const key = item.name.toLocaleLowerCase("ru-RU");
+    if (!grouped.has(key)) grouped.set(key, { name: item.name, total: 0, rows: [] });
+    const person = grouped.get(key), due = item.amount - (item.paid || 0);
+    person.total += due;
+    person.rows.push({ dateKey: item.dateKey, due, paid: item.paid || 0, amount: item.amount });
+  }
+  const people = [...grouped.values()].sort((a,b) => b.total - a.total);
+  if (!people.length) return "💳 ЗАДОЛЖЕННОСТИ\\n\\nДолгов нет. Все рассчитались! ✅";
+  let message = "💳 ЗАДОЛЖЕННОСТИ\\n━━━━━━━━━━━━━━\\n";
+  for (const person of people) {
+    message += "\\n👤 " + person.name + " — " + person.total + " грн\\n";
+    for (const row of person.rows) message += "• " + row.dateKey.split("-").reverse().join(".") + ": " + row.due + " грн" + (row.paid ? " (оплачено " + row.paid + " из " + row.amount + ")" : "") + "\\n";
+  }
+  message += "\\n━━━━━━━━━━━━━━\\n💰 Общий долг: " + people.reduce((sum,p) => sum + p.total, 0) + " грн";
+  return message;
+}
+bot.hears(/^долги$/i, async ctx => {
+  try { const state = await loadState(); await ctx.reply(debtSummaryText(state)); }
+  catch (error) { console.error("DEBT LIST ERROR:", error); await ctx.reply("❌ Не удалось загрузить задолженности."); }
+});
+bot.hears(/^оплачено\\s+(.+?)\\s+(\\d+(?:[.,]\\d{1,2})?)\\s*$/i, async ctx => {
+  if (!isAdmin(ctx)) return ctx.reply("Нет доступа ❌");
+  const name = ctx.match[1].trim(), amount = Number(ctx.match[2].replace(",", "."));
+  if (!name || !Number.isFinite(amount) || amount <= 0) return ctx.reply("Использование: Оплачено Имя Сумма");
+  try {
+    const state = await loadState(), result = debtApplyPayment(state, name, amount, ctx.from.id);
+    if (!result.ok) return ctx.reply(result.total > 0 ? "❌ Сумма больше текущего долга. Остаток: " + result.total + " грн." : "❌ У этого человека нет открытого долга.");
+    await saveState(state);
+    await ctx.reply("✅ Оплата записана: " + name + " — " + amount + " грн.\\nОстаток долга: " + result.remaining + " грн.");
+  } catch (error) { console.error("DEBT PAYMENT ERROR:", error); await ctx.reply("❌ Не удалось записать оплату."); }
+});
+async function checkDebtReminders() {
+  try {
+    const parts = new Intl.DateTimeFormat("en-GB", { timeZone: TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date());
+    const p = {}; for (const part of parts) if (part.type !== "literal") p[part.type] = part.value;
+    if (p.minute !== "00" || !DEBT_REMINDER_HOURS.includes(Number(p.hour))) return;
+    const slot = p.year + "-" + p.month + "-" + p.day + "-" + p.hour;
+    const state = await loadState(), ledger = ensureDebtState(state);
+    if (ledger.reminders[slot]) return;
+    const session = await db.collection(SESSION_BOOKING_DB_COLLECTION).findOne({ key: SESSION_BOOKING_DB_KEY });
+    if (!session?.data?.lastGroupChatId) return;
+    await bot.telegram.sendMessage(session.data.lastGroupChatId, debtSummaryText(state));
+    ledger.reminders[slot] = new Date().toISOString();
+    await saveState(state);
+  } catch (error) { console.error("DEBT REMINDER ERROR:", error.message || error); }
+}
+setInterval(checkDebtReminders, 30 * 1000);
+setTimeout(checkDebtReminders, 7000);
+
+
+
+// ============================================================
 // ТАБЛИЦА
 // ============================================================
 
@@ -817,6 +943,7 @@ bot.command("n", async ctx => {
 
     people.push(name);
     recordAssignmentHistory(state, "assign", name, dayKey, 1);
+    debtAddOrUpdateAssignment(state, name, dayKey, 1, state.currentWeek.weekKey);
 
     state.currentWeek.days[dayKey] =
       people;
@@ -913,6 +1040,7 @@ bot.command("u", async ctx => {
 
     const removed = people[index];
     recordAssignmentHistory(state, "remove", removed, dayKey, getAssignmentMultiplier(removed));
+    debtCancelAssignment(state, removed, dayKey, state.currentWeek.weekKey);
 
     people.splice(index, 1);
 
@@ -1202,6 +1330,7 @@ bot.command("nn", async ctx => {
     people[index] =
       `${name} х${multiplier} 🔥`;
     recordAssignmentHistory(state, "multiplier", name, dayKey, multiplier);
+    debtAddOrUpdateAssignment(state, name, dayKey, multiplier, state.currentWeek.weekKey);
 
     state.currentWeek.days[dayKey] =
       people;
@@ -1247,6 +1376,7 @@ bot.command("uu", async ctx => {
   people[index] = getAssignmentBaseName(people[index]);
   state.currentWeek.days[dayKey] = people;
   recordAssignmentHistory(state, "multiplier_removed", name, dayKey, 1);
+  debtAddOrUpdateAssignment(state, name, dayKey, 1, state.currentWeek.weekKey);
   await saveState(state);
   return ctx.reply("✅ Множитель снят. " + name + " снова X1.");
 });
@@ -1549,7 +1679,7 @@ bot.hears(
 // 🎭 СТИКЕРЫ ЧАЕВЫХ — выбор по сумме конкретного начисления
 // ============================================================
 const TIP_STICKER_RANGES = [
-[1,1,"CAACAgQAAxkBAAIrzmrmauvdC_vJiljT4rv7RfPNfmVsAAKiCwACq7LpU0lmBn_52qa_PQQ"],
+[1,1,"CAACAgIAAxkBAAItE2r_cpjtrbdB-RY0C-HlHliEKvGeAALmmgACtdAoSxKhiKVCeq2oPQQ"],
 [2,2,"CAACAgIAAxkBAAIr72rnxE1itmMV88hID589jvRkZopJAAKVAAOQZIYLxqakSnW74C49BA"],
 [3,3,"CAACAgQAAxkBAAIr0mrmazvH6h6db2F0e1lCpzb5jqiMAAJnEAACFNeBUPE1247mBL8PPQQ"],
 [4,4,"CAACAgIAAxkBAAIr1Grma2N4ZkWtMRSLIxmkw2mgPcUtAAIHAAOAPvIV5H90S092L889BA"],
@@ -1591,12 +1721,17 @@ const TIP_STICKER_RANGES = [
 [100,100,"CAACAgIAAxkBAAIsKWrny_mnXizCPMlJ8ZkZcJd0HNW1AALLFAACB-yZSaoLHHPxfN9kPQQ"]
 ];
 const TIP_STICKERS_OVER_100 = [
-"CAACAgIAAxkBAAIsG2rnynHijSH87xLVcX5hfOb3weguAAKjAAPww8AOxkl6S_6sZLA9BA",
-"CAACAgIAAxkBAAIsK2rnzBsF9afJESW3ILiatU88Wz3-AAIjbQACRjiISl_-j6h0uIzrPQQ"
+  "CAACAgIAAxkBAAIsG2rnynHijSH87xLVcX5hfOb3weguAAKjAAPww8AOxkl6S_6sZLA9BA",
+  "CAACAgIAAxkBAAIsK2rnzBsF9afJESW3ILiatU88Wz3-AAIjbQACRjiISl_-j6h0uIzrPQQ",
+  "CAACAgIAAxkBAAItFWr_cuUY8EtHf3Zlqu5ximo-VWoKAAKFsQACY8s5Sv5cXSQRrdpoPQQ"
 ];
 function tipMemeGetReaction(amount) {
   if (!Number.isInteger(amount) || amount <= 0) return null;
-  if (amount > 100) return { type: "sticker", value: TIP_STICKERS_OVER_100[Math.floor(Math.random() * 2)] };
+  if (amount > 100) {
+    const roll = Math.random();
+    const index = roll < 0.01 ? 2 : (roll < 0.505 ? 0 : 1);
+    return { type: "sticker", value: TIP_STICKERS_OVER_100[index] };
+  }
   const found = TIP_STICKER_RANGES.find(([min, max]) => amount >= min && amount <= max);
   return found ? { type: "sticker", value: found[2] } : null;
 }
@@ -2873,7 +3008,7 @@ bot.hears(
               {
                 text: "🏦 Открыть банку",
                 url:
-                  "https://send.monobank.ua/jar/8vUbn19szV"
+                  "https://send.monobank.ua/jar/6vVGZRPKVE"
               }
             ]
           ]
@@ -4002,8 +4137,8 @@ bot.hears(/^болт$/i, async (ctx) => {
 const SESSION_BOOKING_DB_COLLECTION = "courier-session-booking";
 const SESSION_BOOKING_DB_KEY = "main";
 const SESSION_REMINDERS = [
-  { key: "diamond", hour: 13, minute: 59, text: "💎 ДИАМАНТЫ! Пора набирать сессии! Не упускаем возможность заработать — подключаемся и активно работаем! 💪" },
-  { key: "gold", hour: 14, minute: 29, text: "🥇 ЗОЛОТО! Время набирать сессии! Показываем результат, забираем свои показатели и не сбавляем обороты! 🔥" }
+  { key: "diamond", hour: 13, minute: 59, text: "💎 ДИАМАНТЫ! Пора набирать сессии! Не упускаем возможность заработать — подключаемся и активно работаем! 💪\\n\\n@Invisiibllee @Aleksandr111020 @swixwx @B_aa_l_d @smurf1108" },
+  { key: "gold", hour: 14, minute: 29, text: "🥇 ЗОЛОТО! Время набирать сессии! Показываем результат, забираем свои показатели и не сбавляем обороты! 🔥\\n\\n@B_aa_l_d @globalist88 @ser99ii" }
 ];
 
 function getKyivDateTimeForSessions() {
@@ -7002,10 +7137,10 @@ async function finalEarningsShowDay(
           `👤 ${item.personal} | ` +
           `☕ ${item.tea}\n` +
           `🏢 Этажи — ${item.floors} грн\n` +
-          `💰 Итого: ${item.total} грн\\n`;
+          `💰 Итого: ${item.total} грн\n`;
         const goal = dailyGoalState.goals.day[String(item.userId)];
         if (goal?.dateKey === goalDateKey) {
-          text += "🎯 Цель дня: " + goal.target + " грн (" + Math.round(item.total / goal.target * 100) + "%)\\n";
+          text += "🎯 Цель дня: " + goal.target + " грн (" + Math.round(item.total / goal.target * 100) + "%)\n";
         }
       }
     }
