@@ -9744,13 +9744,15 @@ bot.hears(/^(?:логи|запись)\s*\((.+?)\)(?:\s+\(?(\d{2}[./]\d{2}[./]\d{
   const name = ctx.match[1].trim();
   const dateKey = v3DateISO(ctx.match[2] || finalEarningsToday());
   const state = await v3LoadEarningsState();
+  state.adminLogContexts = state.adminLogContexts || {};
+  delete state.adminLogContexts[String(ctx.from.id)];
   const user = Object.entries(state.users || {}).find(([id,u]) => String(u?.name || "").trim().toLowerCase() === name.toLowerCase());
-  if (!user) return ctx.reply("❌ Курьер не найден: " + name);
+  if (!user) { await finalEarningsSave(state); return ctx.reply("❌ Курьер не найден: " + name); }
   const [userId] = user;
   const rows = (state.records || [])
     .filter(r => r.userId === String(userId) && r.dateKey === dateKey && !r.canceledAt)
     .sort((a,b) => String(a.createdAt||"").localeCompare(String(b.createdAt||"")) || String(a.id).localeCompare(String(b.id)));
-  if (!rows.length) return ctx.reply("📒 Записей " + name + " за " + finalEarningsDotDate(finalEarningsParseDate(dateKey)) + " нет.\nСтарые суммы, внесённые до версии 3.0, не имеют разбивки по отдельным операциям.");
+  if (!rows.length) { await finalEarningsSave(state); return ctx.reply("📒 Записей " + name + " за " + finalEarningsDotDate(finalEarningsParseDate(dateKey)) + " нет.\nСтарые суммы, внесённые до версии 3.0, не имеют разбивки по отдельным операциям."); }
   const labels = { glovo:"Glovo", bolt:"Bolt", ipost:"iPOST", bolttr:"Bolt TR", personal:"Личные доставки", floors:"Этажи", quests:"Квесты", tea:"Чай" };
   const total = rows.reduce((sum,r) => sum + (Number(r.amount)||0), 0);
   const lines = rows.map((r,i) => (i+1) + ". " + (labels[r.type] || r.type) + " — " + r.amount + " грн");
