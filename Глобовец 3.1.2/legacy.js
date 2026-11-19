@@ -10702,7 +10702,7 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase="in
     if(lastPrior && workedToday && gap>=8) await secretAward("vernulsya",dayKey);
     if(lastPrior && !workedToday && gap>=7) await secretAward("lentyay",dayKey);
   }
-  if(workedToday && !Number(user.dailyGoalHistory?.[dayKey]?.target)) await secretAward("bez_plana",dayKey);
+  if(workedToday && !Number(user.todayGoal)) await secretAward("bez_plana",dayKey);
   if(user.weekTotal>0) {
     const sorted=[...snapshot.users.values()].map(x=>({id:x.userId,total:x.weekTotal||0})).sort((a,b)=>b.total-a.total);
     if(sorted[0]?.id!==String(userId) && sorted[0]?.total-(user.weekTotal||0)<500 && sorted[0]?.total>(user.weekTotal||0)) await secretAward("dyhanie_v_spinu",weekKey);
