@@ -27,7 +27,7 @@ bot.use(async (ctx,next)=>{
         state.achievementActivity[uid]=state.achievementActivity[uid]||{};
         state.achievementActivity[uid][day]=state.achievementActivity[uid][day]||{commands:0,statsOpens:0,goalChanges:0};
         state.achievementActivity[uid][day].commands=(Number(state.achievementActivity[uid][day].commands)||0)+1;
-        if(/^(?:мой день$|моя неделя$|мой месяц(?:\s|$)|календарь(?:\s|$)|топ(?:\s|$)|статистика$)/i.test(raw)){
+        if(/^(?:топ\s+чай|топ\s+неделя|топ\s+месяц|топ\s+день|мой день$|моя неделя$|мой месяц(?:\s|$))/i.test(raw)){
           state.achievementActivity[uid][day].statsOpens=(Number(state.achievementActivity[uid][day].statsOpens)||0)+1;
         }
         await finalEarningsSave(state);
@@ -10543,7 +10543,7 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase="in
   if(tea>2000) await award("chainik",dayKey);
   if(user.maxSingleTip>2000) await award("shlyuha_klienta","all");
   if(tea>5000) await award("pidaras",dayKey);
-  if(user.maxSingleTip>1000 && user.maxSingleTip<=2000) await award("otsosal_klientu","all");
+  if(tipRecordsForUser.some(x=>Number(x.amount)>1000 && Number(x.amount)<=2000)) await award("otsosal_klientu","all");
   if(user.monthTea>=30000) await award("chainaya_imperiya",monthKey);
   const dailyGoal=user.todayGoal;
   const goalPercent=dailyGoal>0?goalDaily/dailyGoal*100:0;
@@ -10555,12 +10555,12 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase="in
   if(user.monthGoal>0 && user.monthGoalPercent>=100) await award("rab_mesyatsa",monthKey);
   if(user.monthTotal>0 && user.monthTotal===snapshot.maxMonth && user.isMonthEnd) await award("papa_na_raione",monthKey);
   // Скрытые достижения — вычисляются по накопленной истории, но только после даты старта.
-  const secretAward = async (id, period) => v3AchievementGrant(snapshot,userId,id,period || "all",newAwards);
+  const secretAward = async (id, period) => { if(allowed.has(id)) await v3AchievementGrant(snapshot,userId,id,period || "all",newAwards); };
   const allAwards = snapshot.state.achievements || [];
   const userAwards = allAwards.filter(x=>String(x.userId)===String(userId));
   const secretAwards = userAwards.filter(x=>V3_SECRET_ACHIEVEMENTS.some(m=>m.id===x.achievementId));
   const dayRows = Object.entries(user.days).sort((a,b)=>a[0].localeCompare(b[0]));
-  const workRows = dayRows.filter(([d,x])=>x.earnings>0);
+  const workRows = dayRows.filter(([d,x)=>(Number(x.earnings)||0)+(Number(x.tea)||0)>0);
   const tipRecords = (snapshot.state.records||[]).filter(x=>x && x.type==="tea" && !x.canceledAt && String(x.userId)===String(userId) && String(x.dateKey)>=V3_ACHIEVEMENT_START_DATE);
   const tipTotal = Object.values(user.days).reduce((n,row)=>n+(Number(row.tea)||0),0);
   const tipCount = tipRecords.length;
@@ -10754,7 +10754,7 @@ bot.action("v3_ach_hidden",async ctx=>{
   const count=mine.filter(a=>V3_SECRET_ACHIEVEMENTS.some(x=>x.id===a.achievementId)).length;
   await ctx.answerCbQuery("Скрытые достижения: "+count+"/51");
   const unlocked=mine.filter(a=>V3_SECRET_ACHIEVEMENTS.some(x=>x.id===a.achievementId)).sort((a,b)=>String(a.earnedAt).localeCompare(String(b.earnedAt)));
-  const rows=unlocked.map((a,i)=>{const m=v3AchievementGetMeta(a.achievementId);return (i+1)+". 🟣 "+m.name+" — "+String(a.earnedAt||"").slice(0,10);});
+  const rows=unlocked.map((a,i)=>{const m=v3AchievementGetMeta(a.achievementId);return (i+1)+". 🟣 "+m.name+" — "+String(a.earnedDate||a.earnedAt||"").slice(0,10);});
   await ctx.reply("🟣 СЕКРЕТНЫЕ ДОСТИЖЕНИЯ\n━━━━━━━━━━━━━━\nСкрытые: "+count+"/51\n\n"+(rows.length?rows.join("\n"):"Пока ни одно не раскрыто.")+"\n\nОстальные условия останутся тайной до выполнения.");
 });
 bot.action(/^v3_ach_([a-z0-9_]+)$/,async ctx=>{
