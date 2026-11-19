@@ -431,7 +431,7 @@ const DEBT_REMINDER_HOURS = [14, 23];
 function debtDateForAssignment(weekKey, dayKey) {
   const monday = new Date(String(weekKey) + "T12:00:00Z");
   const offset = DAYS.findIndex(day => day.key === dayKey);
-  monday.setDate(monday.getDate() + Math.max(0, offset));
+  monday.setUTCDate(monday.getUTCDate() + Math.max(0, offset));
   return monday.toISOString().slice(0, 10);
 }
 function ensureDebtState(state) {
