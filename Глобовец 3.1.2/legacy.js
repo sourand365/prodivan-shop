@@ -19,7 +19,7 @@ bot.use(async (ctx,next)=>{
   try{
     const raw=String(ctx.message?.text||"").trim();
     if(raw && ctx.from?.id){
-      const recognized=/^(?:\/|(?:г|б|а|э|л)\s*\+?\s*\d+|чай\s*\+?\s*\d+|мой день$|моя неделя$|мой месяц(?:\s|$)|календарь(?:\s|$)|топ(?:\s|$)|статистика$|цель\s+\d+|сравнить\s|достижения$|мои достижения$|топ достижений$|запись\s|отмена\s|диамант\s*[+-]|золото\s*[+-])/i.test(raw);
+      const recognized=/^(?:\/|(?:г|б|а|э|л)\s*\+?\s*\d+|чай\s*\+?\s*\d+|мой день$|моя неделя$|мой месяц(?:\s|$)|календарь(?:\s|$)|топ(?:\s|$)|статистика$|цель\s+\d+|сравнить\s|достижения$|мои достижения$|топ достижений$|запись\s|логи\s|отмена\s|диамант\s*[+-]|золото\s*[+-])/i.test(raw);
       if(recognized){
         const state=await v3LoadEarningsState();
         const uid=String(ctx.from.id),day=v3DateISO(finalEarningsToday());
