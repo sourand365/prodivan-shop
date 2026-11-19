@@ -10779,14 +10779,22 @@ function v3EvaluateTitles(snapshot,phase) {
     const holders=[...snapshot.users.values()].filter(x=>x.monthTotal===value&&value>0).map(x=>({userId:x.userId,name:x.name}));
     setTitle("papa_na_raione",value,holders,snapshot.monthKey,true);
   }
-  if(phase==="daily"){
+  if(["instant","daily"].includes(phase)){
     const weekday=finalEarningsParseDate(snapshot.today).getUTCDay();
     const id=weekday===1?"luchshiy_ponedelnik":weekday===6?"luchshaya_subbota":null;
     if(id){
-      const rows=[...snapshot.users.values()].map(x=>({user:x,value:Number(x.days?.[snapshot.today]?.earnings)||0}));
-      const value=Math.max(0,...rows.map(x=>x.value));
-      const holders=rows.filter(x=>x.value===value&&value>0).map(x=>({userId:x.user.userId,name:x.user.name}));
-      setTitle(id,value,holders,snapshot.today,false);
+      let value=0;
+      const holderMap=new Map();
+      for(const user of snapshot.users.values()){
+        for(const [date,row] of Object.entries(user.days)){
+          const dateValue=finalEarningsParseDate(date);
+          if(!dateValue || dateValue.getUTCDay()!==weekday)continue;
+          const earnings=Number(row.earnings)||0;
+          if(earnings>value){value=earnings;holderMap.clear();if(earnings>0)holderMap.set(String(user.userId),{userId:user.userId,name:user.name});}
+          else if(earnings>0 && earnings===value)holderMap.set(String(user.userId),{userId:user.userId,name:user.name});
+        }
+      }
+      setTitle(id,value,[...holderMap.values()],"all",true);
     }
   }
   return events;
