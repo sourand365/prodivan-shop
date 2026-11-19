@@ -10557,7 +10557,7 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase="in
   // Скрытые достижения — вычисляются по накопленной истории, но только после даты старта.
   const secretAward = async (id, period) => { if(allowed.has(id)) await v3AchievementGrant(snapshot,userId,id,period || "all",newAwards); };
   const allAwards = snapshot.state.achievements || [];
-  const userAwards = allAwards.filter(x=>String(x.userId)===String(userId));
+  const userAwards = allAwards.filter(x=>String(x.userId)===String(userId) && !V3_TITLES.some(t=>t.id===x.achievementId));
   const secretAwards = userAwards.filter(x=>V3_SECRET_ACHIEVEMENTS.some(m=>m.id===x.achievementId));
   const dayRows = Object.entries(user.days).sort((a,b)=>a[0].localeCompare(b[0]));
   const workRows = dayRows.filter(([d,x])=>(Number(x.earnings)||0)+(Number(x.tea)||0)>0);
