@@ -6952,49 +6952,73 @@ function v3EscapeSvg(value) {
   }[char]));
 }
 
-async function v3BuildMyDayCard(report, dateText, rankText, goalTarget) {
+async function v3BuildMyDayCard(report, dateText, rankText, rankPosition, goalTarget) {
   const sharp = __globovetsSharp;
-  const width = 1200, height = 1500;
   const safe = v3EscapeSvg;
+  const width = 1200, height = 1500;
   const rows = [
-    ["GLOVO", report.glovo, "#f6c94b"],
-    ["BOLT", report.bolt, "#65d48b"],
-    ["IPOST", report.ipost, "#f16c6c"],
-    ["BOLT TR", report.bolttr, "#ff934d"],
-    ["ЛИЧНЫЕ ДОСТАВКИ", report.personal, "#d5d5d5"],
-    ["ЭТАЖИ", report.floors, "#d5d5d5"],
-    ["ЧАЕВЫЕ", report.tea, "#e7b7ff"]
-  ];
-  const rowSvg = rows.map((item,index) => {
-    const y = 690 + index * 82;
-    return '<text x="104" y="'+y+'" fill="#bdbdbd" font-size="30" font-weight="600">'+safe(item[0])+'</text>'+
-      '<text x="1090" y="'+y+'" fill="'+item[2]+'" font-size="34" font-weight="700" text-anchor="end">'+safe(item[1])+' ₴</text>';
-  }).join("");
+    ["Glovo", report.glovo, "#f6c94b"],
+    ["Bolt", report.bolt, "#65d48b"],
+    ["Bolt TR", report.bolttr, "#ff934d"],
+    ["IPost", report.ipost, "#f16c6c"],
+    ["Ля", report.personal, "#d5d5d5"],
+    ["Чаевые", report.tea, "#e7b7ff"],
+    ["Этажи", report.floors, "#c9c9c9"]
+  ].filter(item => Number(item[1]) > 0);
+
   const goal = Number(goalTarget) > 0 ? Number(goalTarget) : 0;
   const percent = goal ? Math.round(Number(report.total || 0) / goal * 100) : 0;
-  const progress = goal ? Math.max(0,Math.min(100,percent)) : 0;
+  const progress = goal ? Math.max(0, Math.min(100, percent)) : 0;
+  const listTop = 850;
+  const rowGap = rows.length > 5 ? 54 : 66;
+  const rowsSvg = rows.length
+    ? rows.map((item,index) => {
+        const y = listTop + index * rowGap;
+        return '<path d="M88 '+(y+17)+'H1112" stroke="#3b3424" stroke-width="2"/>'+
+          '<text x="112" y="'+y+'" fill="'+item[2]+'" font-size="38" font-weight="700">'+safe(item[0])+'</text>'+
+          '<text x="1088" y="'+y+'" fill="#ffffff" font-size="38" font-weight="700" text-anchor="end">'+safe(item[1])+' грн</text>';
+      }).join("")
+    : '<text x="600" y="'+(listTop+20)+'" fill="#a7a7a7" font-size="32" text-anchor="middle">За сегодня записей пока нет</text>';
+
+  const goalY = Math.max(1260, listTop + rows.length * rowGap + 80);
   const goalSvg = goal
-    ? '<text x="104" y="1330" fill="#f3c84b" font-size="30" font-weight="700">ЦЕЛЬ ДНЯ — '+safe(goal)+' ₴</text>'+
-      '<text x="1090" y="1330" fill="#ffffff" font-size="30" font-weight="700" text-anchor="end">'+safe(percent)+'%</text>'+
-      '<rect x="104" y="1360" width="986" height="28" rx="14" fill="#343434"/>'+
-      '<rect x="104" y="1360" width="'+(986*progress/100)+'" height="28" rx="14" fill="#38c878"/>'
-    : '<text x="104" y="1340" fill="#a7a7a7" font-size="28">ЦЕЛЬ ДНЯ НЕ УСТАНОВЛЕНА</text>';
+    ? '<text x="104" y="'+goalY+'" fill="#f3c84b" font-size="32" font-weight="700">ЛИЧНАЯ ЦЕЛЬ — '+safe(goal)+' грн</text>'+
+      '<text x="1090" y="'+goalY+'" fill="#ffffff" font-size="32" font-weight="800" text-anchor="end">'+safe(percent)+'%</text>'+
+      '<rect x="104" y="'+(goalY+28)+'" width="986" height="30" rx="15" fill="#343434"/>'+
+      '<rect x="104" y="'+(goalY+28)+'" width="'+(986*progress/100)+'" height="30" rx="15" fill="#38c878"/>'+
+      '<text x="104" y="'+(goalY+100)+'" fill="'+(percent>=100?"#38c878":"#cfcfcf")+'" font-size="28" font-weight="700">'+(percent>=100?"✓ ЦЕЛЬ ВЫПОЛНЕНА":"ПРОГРЕСС ЦЕЛИ")+'</text>'
+    : '<text x="104" y="'+goalY+'" fill="#a7a7a7" font-size="28">ЛИЧНАЯ ЦЕЛЬ НЕ УСТАНОВЛЕНА</text>';
+
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'" height="'+height+'" viewBox="0 0 '+width+' '+height+'">'+
-    '<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#080909"/><stop offset="1" stop-color="#1b1b18"/></linearGradient>'+
+    '<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#070808"/><stop offset=".55" stop-color="#17150f"/><stop offset="1" stop-color="#080909"/></linearGradient>'+
     '<linearGradient id="gold" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#9c7625"/><stop offset=".5" stop-color="#ffe17a"/><stop offset="1" stop-color="#9c7625"/></linearGradient></defs>'+
     '<rect width="1200" height="1500" fill="url(#bg)"/>'+
     '<path d="M0 0H1200V18H0Z" fill="url(#gold)"/><path d="M0 1482H1200V1500H0Z" fill="url(#gold)"/>'+
-    '<rect x="42" y="42" width="1116" height="1416" rx="34" fill="none" stroke="#9d7b2d" stroke-width="3"/>'+
-    '<text x="104" y="145" fill="#f5d36a" font-size="34" font-weight="800" letter-spacing="8">GLOBOVETS • МОТОКУРЬЕР</text>'+
-    '<text x="104" y="270" fill="#ffffff" font-size="76" font-weight="900">'+safe(report.name || "Курьер")+'</text>'+
-    '<text x="104" y="335" fill="#bdbdbd" font-size="34">'+safe(dateText)+'</text>'+
-    '<rect x="104" y="390" width="500" height="68" rx="34" fill="#29251a" stroke="#a88636" stroke-width="2"/>'+
-    '<text x="354" y="435" fill="#f5d36a" font-size="28" font-weight="800" text-anchor="middle">'+safe(rankText || "КУРЬЕР")+'</text>'+
-    '<text x="104" y="565" fill="#bdbdbd" font-size="28" letter-spacing="5">ЗАРАБОТОК ЗА ДЕНЬ</text>'+
-    '<text x="104" y="650" fill="#f7d56e" font-size="86" font-weight="900">'+safe(report.total)+' ₴</text>'+
-    '<path d="M104 660H1090" stroke="#80652b" stroke-width="2"/>'+
-    rowSvg+
-    '<path d="M104 1270H1090" stroke="#80652b" stroke-width="2"/>'+
+    '<rect x="38" y="38" width="1124" height="1424" rx="38" fill="none" stroke="#b18a32" stroke-width="3"/>'+
+    '<text x="88" y="132" fill="#f5d36a" font-size="56" font-style="italic" font-weight="900">Мой день</text>'+
+    '<text x="1110" y="125" fill="#ffffff" font-size="32" font-weight="700" text-anchor="end">'+safe(dateText)+'</text>'+
+    '<path d="M88 165H1112" stroke="#80652b" stroke-width="3"/>'+
+    '<text x="88" y="270" fill="#ffffff" font-size="72" font-weight="900">'+safe(report.name || "Курьер")+'</text>'+
+    '<text x="92" y="330" fill="#f5d36a" font-size="32" font-weight="800">'+safe(rankText || "КУРЬЕР НА ЛИНИИ")+'</text>'+
+    '<rect x="810" y="190" width="300" height="180" rx="28" fill="#211b0d" stroke="url(#gold)" stroke-width="4"/>'+
+    '<text x="960" y="285" fill="#f7d56e" font-size="92" font-weight="900" text-anchor="middle">#'+safe(rankPosition || "—")+'</text>'+
+    '<text x="960" y="330" fill="#f5d36a" font-size="25" font-weight="800" text-anchor="middle">МЕСТО В ТОПЕ ДНЯ</text>'+
+    '<rect x="82" y="410" width="500" height="300" rx="30" fill="#11120f" stroke="#9d7b2d" stroke-width="3"/>'+
+    '<text x="118" y="480" fill="#c9c9c9" font-size="28" font-weight="700">ЗАРАБОТОК ЗА ДЕНЬ</text>'+
+    '<text x="118" y="590" fill="#f7d56e" font-size="76" font-weight="900">'+safe(report.total)+' грн</text>'+
+    '<text x="118" y="655" fill="#a7a7a7" font-size="25">Все учтённые поступления за день</text>'+
+    '<rect x="620" y="410" width="498" height="300" rx="30" fill="#11120f" stroke="#9d7b2d" stroke-width="3"/>'+
+    '<text x="660" y="480" fill="#f5d36a" font-size="30" font-weight="800">ЛИЧНАЯ ЦЕЛЬ</text>'+
+    (goal
+      ? '<text x="660" y="555" fill="#ffffff" font-size="42" font-weight="800">'+safe(goal)+' грн</text>'+
+        '<text x="1070" y="555" fill="#38c878" font-size="42" font-weight="900" text-anchor="end">'+safe(percent)+'%</text>'+
+        '<rect x="660" y="590" width="410" height="34" rx="17" fill="#343434"/>'+
+        '<rect x="660" y="590" width="'+(410*progress/100)+'" height="34" rx="17" fill="#38c878"/>'+
+        '<text x="660" y="670" fill="'+(percent>=100?"#38c878":"#cfcfcf")+'" font-size="26" font-weight="700">'+(percent>=100?"✓ Цель выполнена!":"Заполнение цели")+'</text>'
+      : '<text x="660" y="565" fill="#a7a7a7" font-size="30">Цель пока не установлена</text>')+
+    '<text x="92" y="790" fill="#f5d36a" font-size="38" font-weight="900">ЗАПИСИ ЗА ДЕНЬ</text>'+
+    rowsSvg+
+    '<path d="M88 1215H1112" stroke="#80652b" stroke-width="2"/>'+
     goalSvg+
     '</svg>';
   return sharp(Buffer.from(svg)).png().toBuffer();
@@ -7010,30 +7034,38 @@ bot.hears(
       const state = await v3LoadEarningsState();
       const dailyGoal = state.goals?.day?.[userId];
       const goalTarget = dailyGoal?.dateKey === v3DateISO(dateKey) ? Number(dailyGoal.target)||0 : 0;
+
       const titleEntry = Object.entries(state.titles || {}).find(([,title]) =>
         (title.holders || []).some(holder => String(holder.userId) === userId)
       );
       const titleMeta = titleEntry ? V3_TITLES.find(title => title.id === titleEntry[0]) : null;
       const rankText = titleMeta?.name || "КУРЬЕР НА ЛИНИИ";
+
+      const dayEntries = await finalEarningsBuildDay(dateKey);
+      const rankIndex = dayEntries.findIndex(item => String(item.userId) === userId);
+      const rankPosition = rankIndex >= 0 ? rankIndex + 1 : "—";
       const dateText = finalEarningsDotDate(finalEarningsParseDate(dateKey));
       const percent = goalTarget > 0 ? Math.round(report.total / goalTarget * 100) : 0;
+
       try {
-        const png = await v3BuildMyDayCard(report,dateText,rankText,goalTarget);
+        const png = await v3BuildMyDayCard(report,dateText,rankText,rankPosition,goalTarget);
         await ctx.replyWithPhoto({source:png},{
-          caption:"💰 МОЙ ДЕНЬ • "+report.name+"\n📅 "+dateText+"\n🎯 Цель: "+(goalTarget ? goalTarget+" грн ("+percent+"%)" : "не установлена")
+          caption:"💰 МОЙ ДЕНЬ • "+report.name+
+            "\n📅 "+dateText+
+            "\n🏆 Место в топе дня: "+(rankPosition === "—" ? "нет в рейтинге" : "#"+rankPosition)+
+            "\n🎯 Цель: "+(goalTarget ? goalTarget+" грн ("+percent+"%)" : "не установлена")
         });
       } catch (imageError) {
         console.error("MY DAY CARD ERROR:",imageError);
+        const rows = [
+          ["Glovo",report.glovo],["Bolt",report.bolt],["Bolt TR",report.bolttr],
+          ["IPost",report.ipost],["Ля",report.personal],["Чаевые",report.tea],["Этажи",report.floors]
+        ].filter(row => Number(row[1]) > 0);
         await ctx.reply(
-          "💰 МОЙ ДЕНЬ\n📅 "+dateText+"\n👑 "+rankText+"\n\n"+
-          "🟡 Glovo — "+report.glovo+" грн\n"+
-          "🟢 Bolt — "+report.bolt+" грн\n"+
-          "🔴 iPOST — "+report.ipost+" грн\n"+
-          "🚨 Bolt TR — "+report.bolttr+" грн\n"+
-          "👤 Личные доставки — "+report.personal+" грн\n"+
-          "🏢 Этажи — "+report.floors+" грн\n"+
-          "☕ Чаевые — "+report.tea+" грн\n\n"+
-          "💰 ИТОГО — "+report.total+" грн"+
+          "💰 МОЙ ДЕНЬ\n📅 "+dateText+"\n👑 "+rankText+
+          "\n🏆 Место в топе дня: "+(rankPosition === "—" ? "нет в рейтинге" : "#"+rankPosition)+
+          "\n\n📝 Записи за день:\n"+(rows.length ? rows.map(row=>row[0]+" — "+row[1]+" грн").join("\n") : "Записей пока нет")+
+          "\n\n💰 ИТОГО — "+report.total+" грн"+
           (goalTarget ? "\n🎯 Цель дня — "+goalTarget+" грн ("+percent+"%)" : "")
         );
       }
