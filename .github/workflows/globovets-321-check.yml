@@ -23,6 +23,9 @@ jobs:
         run: npm --prefix 'standalone/globovets-local-sqlite/globovets-standalone-3.2.1' install --no-audit --no-fund
       - name: Check JavaScript syntax
         run: npm --prefix 'standalone/globovets-local-sqlite/globovets-standalone-3.2.1' run check
+      - name: Test PNG card rendering dependency
+        run: |
+          node -e 'require("sharp")(Buffer.from("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"32\" height=\"32\"><rect width=\"32\" height=\"32\" fill=\"#111\"/></svg>")).png().toBuffer().then(data=>{if(!data.length)process.exit(1);console.log("PNG rendering OK")})'
       - name: Validate package metadata and updated commands
         run: |
           node -e "const fs=require('fs'); const p=require('./standalone/globovets-local-sqlite/globovets-standalone-3.2.1/package.json'); const s=fs.readFileSync('./standalone/globovets-local-sqlite/globovets-standalone-3.2.1/legacy.js','utf8'); if(p.version!=='3.2.1'||!p.dependencies.sharp||!s.includes('КВЕ 500')||s.includes('/^к\\s+')) process.exit(1)"
