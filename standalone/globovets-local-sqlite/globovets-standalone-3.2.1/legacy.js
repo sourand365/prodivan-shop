@@ -6990,7 +6990,7 @@ async function v3BuildMyDayCard(report, dateText, rankText, rankPosition, goalTa
     ? '<rect x="92" y="'+(teaY-52)+'" width="1016" height="82" rx="22" fill="#211a0d" stroke="#c39a3b" stroke-width="3"/>'+
       '<path d="M150 '+(teaY-17)+'h32v28h-32z M182 '+(teaY-11)+'h9a10 10 0 0 1 0 20h-9" fill="none" stroke="#f1c85e" stroke-width="4"/>'+
       '<path d="M158 '+(teaY-27)+'q-8 -10 0 -18 M171 '+(teaY-27)+'q-8 -10 0 -18" fill="none" stroke="#f1c85e" stroke-width="3" stroke-linecap="round"/>'+
-      '<text x="220" y="'+(teaY+8)+'" fill="#f4d274" font-size="39" font-weight="800">Болт Чай</text>'+
+      '<text x="220" y="'+(teaY+8)+'" fill="#f4d274" font-size="39" font-weight="800">Чаевые</text>'+
       '<text x="1080" y="'+(teaY+8)+'" fill="#ffe28b" font-size="39" font-weight="800" text-anchor="end">+'+safe(Number(report.tea)||0)+' грн</text>'
     : "";
 
@@ -7092,7 +7092,7 @@ bot.hears(
           "💰 МОЙ ДЕНЬ\n📅 "+dateText+"\n👑 "+rankText+
           "\n🏆 Место в топе дня: "+(rankPosition === "—" ? "нет в рейтинге" : "#"+rankPosition)+
           "\n\n📝 Подробнее:\n"+rows.map(row=>row[0]+" — "+(Number(row[1])||0)+" грн").join("\n")+
-          "\n☕ Болт Чай — "+(Number(report.tea)||0)+" грн"+
+          "\n☕ Чаевые — "+(Number(report.tea)||0)+" грн"+
           "\n\n💰 Заработано за день — "+report.total+" грн"+
           (goalTarget ? "\n🎯 Цель дня — "+goalTarget+" грн ("+percent+"%)\n🟢 Сверх цели: +"+Math.max(0,report.total-goalTarget)+" грн" : "")
         );
