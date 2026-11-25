@@ -5590,8 +5590,8 @@ bot.on(
 // Л 500
 // Л 30.09.2026 500
 //
-// К 500
-// К 30.09.2026 500
+// КВЕ 500
+// КВЕ 30.09.2026 500
 //
 // Э 150
 // Э 150 30.09.2026
@@ -6615,12 +6615,12 @@ bot.hears(
 // ============================================================
 // 🎯 КВЕСТЫ
 //
-// К 500
-// К 30.09.2026 500
+// КВЕ 500
+// КВЕ 30.09.2026 500
 // ============================================================
 
 bot.hears(
-  /^к\s+(\d+(?:[.,]\d+)?)(?:\s+(\d{2}[./]\d{2}[./]\d{4}|\d{4}-\d{2}-\d{2}))?$/i,
+  /^кве\s+(\d+(?:[.,]\d+)?)(?:\s+(\d{2}[./]\d{2}[./]\d{4}|\d{4}-\d{2}-\d{2}))?$/i,
   async ctx => {
     await finalEarningsAddExtra(
       ctx,
@@ -6631,9 +6631,9 @@ bot.hears(
   }
 );
 
-// Старый формат: К 30.09.2026 500
+// Формат с датой перед суммой: КВЕ 30.09.2026 500
 bot.hears(
-  /^к\s+(\d{2}[./]\d{2}[./]\d{4}|\d{4}-\d{2}-\d{2})\s+(\d+(?:[.,]\d+)?)$/i,
+  /^кве\s+(\d{2}[./]\d{2}[./]\d{4}|\d{4}-\d{2}-\d{2})\s+(\d+(?:[.,]\d+)?)$/i,
   async ctx => {
     await finalEarningsAddExtra(
       ctx,
@@ -6946,59 +6946,100 @@ async function finalEarningsReport(
 // 💰 МОЙ ДЕНЬ
 // ============================================================
 
+function v3EscapeSvg(value) {
+  return String(value ?? "").replace(/[&<>"']/g, char => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&apos;"
+  }[char]));
+}
+
+async function v3BuildMyDayCard(report, dateText, rankText, goalTarget) {
+  const sharp = require("sharp");
+  const width = 1200, height = 1500;
+  const safe = v3EscapeSvg;
+  const rows = [
+    ["GLOVO", report.glovo, "#f6c94b"],
+    ["BOLT", report.bolt, "#65d48b"],
+    ["IPOST", report.ipost, "#f16c6c"],
+    ["BOLT TR", report.bolttr, "#ff934d"],
+    ["ЛИЧНЫЕ ДОСТАВКИ", report.personal, "#d5d5d5"],
+    ["ЭТАЖИ", report.floors, "#d5d5d5"],
+    ["ЧАЕВЫЕ", report.tea, "#e7b7ff"]
+  ];
+  const rowSvg = rows.map((item,index) => {
+    const y = 690 + index * 82;
+    return '<text x="104" y="'+y+'" fill="#bdbdbd" font-size="30" font-weight="600">'+safe(item[0])+'</text>'+
+      '<text x="1090" y="'+y+'" fill="'+item[2]+'" font-size="34" font-weight="700" text-anchor="end">'+safe(item[1])+' ₴</text>';
+  }).join("");
+  const goal = Number(goalTarget) > 0 ? Number(goalTarget) : 0;
+  const percent = goal ? Math.round(Number(report.total || 0) / goal * 100) : 0;
+  const progress = goal ? Math.max(0,Math.min(100,percent)) : 0;
+  const goalSvg = goal
+    ? '<text x="104" y="1330" fill="#f3c84b" font-size="30" font-weight="700">ЦЕЛЬ ДНЯ — '+safe(goal)+' ₴</text>'+
+      '<text x="1090" y="1330" fill="#ffffff" font-size="30" font-weight="700" text-anchor="end">'+safe(percent)+'%</text>'+
+      '<rect x="104" y="1360" width="986" height="28" rx="14" fill="#343434"/>'+
+      '<rect x="104" y="1360" width="'+(986*progress/100)+'" height="28" rx="14" fill="#38c878"/>'
+    : '<text x="104" y="1340" fill="#a7a7a7" font-size="28">ЦЕЛЬ ДНЯ НЕ УСТАНОВЛЕНА</text>';
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'" height="'+height+'" viewBox="0 0 '+width+' '+height+'">'+
+    '<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#080909"/><stop offset="1" stop-color="#1b1b18"/></linearGradient>'+
+    '<linearGradient id="gold" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#9c7625"/><stop offset=".5" stop-color="#ffe17a"/><stop offset="1" stop-color="#9c7625"/></linearGradient></defs>'+
+    '<rect width="1200" height="1500" fill="url(#bg)"/>'+
+    '<path d="M0 0H1200V18H0Z" fill="url(#gold)"/><path d="M0 1482H1200V1500H0Z" fill="url(#gold)"/>'+
+    '<rect x="42" y="42" width="1116" height="1416" rx="34" fill="none" stroke="#9d7b2d" stroke-width="3"/>'+
+    '<text x="104" y="145" fill="#f5d36a" font-size="34" font-weight="800" letter-spacing="8">GLOBOVETS • МОТОКУРЬЕР</text>'+
+    '<text x="104" y="270" fill="#ffffff" font-size="76" font-weight="900">'+safe(report.name || "Курьер")+'</text>'+
+    '<text x="104" y="335" fill="#bdbdbd" font-size="34">'+safe(dateText)+'</text>'+
+    '<rect x="104" y="390" width="500" height="68" rx="34" fill="#29251a" stroke="#a88636" stroke-width="2"/>'+
+    '<text x="354" y="435" fill="#f5d36a" font-size="28" font-weight="800" text-anchor="middle">'+safe(rankText || "КУРЬЕР")+'</text>'+
+    '<text x="104" y="565" fill="#bdbdbd" font-size="28" letter-spacing="5">ЗАРАБОТОК ЗА ДЕНЬ</text>'+
+    '<text x="104" y="650" fill="#f7d56e" font-size="86" font-weight="900">'+safe(report.total)+' ₴</text>'+
+    '<path d="M104 660H1090" stroke="#80652b" stroke-width="2"/>'+
+    rowSvg+
+    '<path d="M104 1270H1090" stroke="#80652b" stroke-width="2"/>'+
+    goalSvg+
+    '</svg>';
+  return sharp(Buffer.from(svg)).png().toBuffer();
+}
+
 bot.hears(
   /^мой день$/i,
   async ctx => {
-
     try {
-
-      const report =
-        await finalEarningsReport(
-          String(
-            ctx.from.id
-          ),
-          finalEarningsToday()
+      const userId = String(ctx.from.id);
+      const dateKey = finalEarningsToday();
+      const report = await finalEarningsReport(userId,dateKey);
+      const state = await v3LoadEarningsState();
+      const dailyGoal = state.goals?.day?.[userId];
+      const goalTarget = dailyGoal?.dateKey === v3DateISO(dateKey) ? Number(dailyGoal.target)||0 : 0;
+      const titleEntry = Object.entries(state.titles || {}).find(([,title]) =>
+        (title.holders || []).some(holder => String(holder.userId) === userId)
+      );
+      const titleMeta = titleEntry ? V3_TITLES.find(title => title.id === titleEntry[0]) : null;
+      const rankText = titleMeta?.name || "КУРЬЕР НА ЛИНИИ";
+      const dateText = finalEarningsDotDate(finalEarningsParseDate(dateKey));
+      const percent = goalTarget > 0 ? Math.round(report.total / goalTarget * 100) : 0;
+      try {
+        const png = await v3BuildMyDayCard(report,dateText,rankText,goalTarget);
+        await ctx.replyWithPhoto({source:png},{
+          caption:"💰 МОЙ ДЕНЬ • "+report.name+"\n📅 "+dateText+"\n🎯 Цель: "+(goalTarget ? goalTarget+" грн ("+percent+"%)" : "не установлена")
+        });
+      } catch (imageError) {
+        console.error("MY DAY CARD ERROR:",imageError);
+        await ctx.reply(
+          "💰 МОЙ ДЕНЬ\n📅 "+dateText+"\n👑 "+rankText+"\n\n"+
+          "🟡 Glovo — "+report.glovo+" грн\n"+
+          "🟢 Bolt — "+report.bolt+" грн\n"+
+          "🔴 iPOST — "+report.ipost+" грн\n"+
+          "🚨 Bolt TR — "+report.bolttr+" грн\n"+
+          "👤 Личные доставки — "+report.personal+" грн\n"+
+          "🏢 Этажи — "+report.floors+" грн\n"+
+          "☕ Чаевые — "+report.tea+" грн\n\n"+
+          "💰 ИТОГО — "+report.total+" грн"+
+          (goalTarget ? "\n🎯 Цель дня — "+goalTarget+" грн ("+percent+"%)" : "")
         );
-      const dailyGoalState = await v3LoadEarningsState();
-      const dailyGoal = dailyGoalState.goals.day[String(ctx.from.id)];
-      const dailyGoalLine = dailyGoal?.dateKey === v3DateISO(finalEarningsToday())
-        ? "\n🎯 Цель дня — " + dailyGoal.target + " грн (" + Math.round(report.total / dailyGoal.target * 100) + "%)"
-        : "";
-
-      await ctx.reply(
-
-        "💰 МОЙ ДЕНЬ\n" +
-        "━━━━━━━━━━━━━━\n\n" +
-
-        `🟡 Glovo — ${report.glovo} грн\n` +
-
-        `🟢 Bolt — ${report.bolt} грн\n` +
-
-        `🔴 iPOST — ${report.ipost} грн\n` +
-
-        `🚨 Bolt TR — ${report.bolttr} грн\n` +
-
-        `👤 Личные доставки — ${report.personal} грн\n` +
-
-        `🏢 Этажи — ${report.floors} грн\n` +
-
-        `☕ Чаевые — ${report.tea} грн\n\n` +
-
-        "━━━━━━━━━━━━━━\n" +
-
-        `💰 ИТОГО — ${report.total} грн${dailyGoalLine}`
-      );
-
+      }
     } catch (error) {
-
-      console.error(
-        "MY DAY ERROR:",
-        error
-      );
-
-      await ctx.reply(
-        "❌ Ошибка формирования моего дня."
-      );
+      console.error("MY DAY ERROR:",error);
+      await ctx.reply("❌ Ошибка формирования моего дня.");
     }
   }
 );
@@ -10542,6 +10583,7 @@ const V3_SECRET_ACHIEVEMENTS = [
 
 function v3AchievementDate(award) {
   if(award?.earnedDate) return String(award.earnedDate).slice(0,10);
+  if(!award?.earnedAt && /^\d{4}-\d{2}-\d{2}$/.test(String(award?.periodKey||""))) return String(award.periodKey);
   if(!award?.earnedAt) return "";
   const date=new Date(award.earnedAt);
   if(Number.isNaN(date.getTime())) return "";
@@ -10573,7 +10615,8 @@ async function v3AchievementBuildSnapshot() {
     return users.get(id);
   };
   const ensureDay = (user, iso) => {
-    if (!user.days[iso]) user.days[iso] = {earnings:0,tea:0,total:0};
+    if (!user.days[iso]) user.days[iso] = {earnings:0,quests:0,tea:0,total:0};
+    if (!Number.isFinite(Number(user.days[iso].quests))) user.days[iso].quests = 0;
     return user.days[iso];
   };
   for (const [dateKey,day] of Object.entries(state.days || {})) {
@@ -10585,7 +10628,8 @@ async function v3AchievementBuildSnapshot() {
       if (!item) continue;
       const user = ensureUser(id,item.name);
       const row = ensureDay(user,iso);
-      row.earnings += (Number(item.glovo)||0)+(Number(item.bolt)||0)+(Number(item.ipost)||Number(item.iposr)||0)+(Number(item.bolttr)||0)+(Number(item.personal)||0)+(Number(item.floors)||0)+(Number(item.quests)||0);
+      row.earnings += (Number(item.glovo)||0)+(Number(item.bolt)||0)+(Number(item.ipost)||Number(item.iposr)||0)+(Number(item.bolttr)||0)+(Number(item.personal)||0)+(Number(item.floors)||0);
+      row.quests += Number(item.quests)||0;
     }
   }
   const tipDays = [];
@@ -10621,8 +10665,8 @@ async function v3AchievementBuildSnapshot() {
     for (const [iso,row] of Object.entries(user.days)) {
       const date=finalEarningsParseDate(iso);
       if (!date) continue;
-      if (finalEarningsWeekKey(date)===weekKey) weekTotal+=row.earnings;
-      if (finalEarningsMonthKey(date)===monthKey) {monthTotal+=row.earnings;monthTea+=row.tea;}
+      if (finalEarningsWeekKey(date)===weekKey) weekTotal+=row.earnings+(Number(row.quests)||0);
+      if (finalEarningsMonthKey(date)===monthKey) {monthTotal+=row.earnings+(Number(row.quests)||0);monthTea+=row.tea;}
     }
     monthTotals[id]={total:monthTotal,tea:monthTea};
     user.weekTotal=weekTotal;
@@ -10670,7 +10714,12 @@ async function v3AchievementGrant(snapshot,userId,achievementId,periodKey,newAwa
   const state=snapshot.state;
   if(!Array.isArray(state.achievements)) state.achievements=[];
   const awardKey=achievementId+":"+periodKey;
-  if(state.achievements.some(x=>x.awardKey===awardKey && String(x.userId)===String(userId))) return;
+  const alreadyAwarded=state.achievements.some(x=>{
+    if(String(x.userId)!==String(userId) || x.achievementId!==achievementId) return false;
+    if(meta.repeat==="once" || periodKey==="all") return true;
+    return x.awardKey===awardKey || String(x.periodKey||"")===String(periodKey);
+  });
+  if(alreadyAwarded) return;
   const user=snapshot.users.get(String(userId));
   const award={awardKey,userId:String(userId),name:user?.name||state.users?.[String(userId)]?.name||"Курьер",achievementId,periodKey,earnedAt:new Date().toISOString(),earnedDate:snapshot.today};
   state.achievements.push(award);
@@ -10811,7 +10860,7 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase="in
   const priorKeyForRecovery=finalEarningsMonthKey(priorMonthForRecovery);
   const twoMonthsForRecovery=new Date(Date.UTC(todayDate.getUTCFullYear(),todayDate.getUTCMonth()-2,1));
   const twoMonthsKeyForRecovery=finalEarningsMonthKey(twoMonthsForRecovery);
-  const monthSumForRecovery=key=>Object.entries(user.days).reduce((sum,[date,row])=>sum+(date.startsWith(key+"-")?(Number(row.earnings)||0):0),0);
+  const monthSumForRecovery=key=>Object.entries(user.days).reduce((sum,[date,row])=>sum+(date.startsWith(key+"-")?((Number(row.earnings)||0)+(Number(row.quests)||0)):0),0);
   const priorSumForRecovery=monthSumForRecovery(priorKeyForRecovery),twoMonthsSumForRecovery=monthSumForRecovery(twoMonthsKeyForRecovery);
   if(priorKeyForRecovery>=V3_ACHIEVEMENT_START_DATE.slice(0,7) && twoMonthsSumForRecovery>0 && priorSumForRecovery>0 && priorSumForRecovery<=twoMonthsSumForRecovery*0.5 && user.monthTotal>=priorSumForRecovery*2) await secretAward("podem_s_kolen",monthKey);
   const everyRecordedWorkdayHasGoal=workRows.filter(([d])=>d.startsWith(monthKey+"-")).every(([d,row])=>Number(user.dailyGoalHistory?.[d]?.target)>0 && row.total>=Number(user.dailyGoalHistory[d].target));
@@ -10835,7 +10884,7 @@ async function v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase="in
     const priorKey=finalEarningsMonthKey(priorMonth);
     const twoMonthsAgo = new Date(Date.UTC(todayDate.getUTCFullYear(),todayDate.getUTCMonth()-2,1));
     const twoMonthsKey = finalEarningsMonthKey(twoMonthsAgo);
-    const monthEarnings = key => Object.entries(user.days).reduce((sum,[date,row])=>sum+(date.startsWith(key+"-")?(Number(row.earnings)||0):0),0);
+    const monthEarnings = key => Object.entries(user.days).reduce((sum,[date,row])=>sum+(date.startsWith(key+"-")?((Number(row.earnings)||0)+(Number(row.quests)||0)):0),0);
     const priorTotal=monthEarnings(priorKey),twoMonthsTotal=monthEarnings(twoMonthsKey);
     if(priorKey>=V3_ACHIEVEMENT_START_DATE.slice(0,7) && priorTotal>0 && user.monthTotal>=priorTotal*1.5) await secretAward("skachok",monthKey);
     if(priorKey>=V3_ACHIEVEMENT_START_DATE.slice(0,7) && priorTotal>0 && user.monthTotal<=priorTotal*0.5) await secretAward("obval",monthKey);
@@ -10993,20 +11042,30 @@ async function v3CheckChatAchievement(ctx) {
   if(newAwards.length){await finalEarningsSave(state);await v3SendAchievementAwards(newAwards);}
 }
 
+const v3AchievementRunLocks = new Set();
+
 async function v3EvaluateAllAchievements(phase="daily") {
-  const snapshot=await v3AchievementBuildSnapshot();
-  const marker="achievements:"+phase+":"+snapshot.today;
-  if(snapshot.state.v3Sent?.[marker])return;
-  if(!snapshot.state.v3Sent)snapshot.state.v3Sent={};
-  const newAwards=[];
-  if(snapshot.state.achievementsEnabled!==false){
-    for(const userId of snapshot.users.keys())await v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase);
+  const todayKey = v3DateISO(finalEarningsToday());
+  const runKey = "achievements:"+phase+":"+todayKey;
+  if(v3AchievementRunLocks.has(runKey)) return;
+  v3AchievementRunLocks.add(runKey);
+  try {
+    const snapshot=await v3AchievementBuildSnapshot();
+    const marker="achievements:"+phase+":"+snapshot.today;
+    if(snapshot.state.v3Sent?.[marker])return;
+    if(!snapshot.state.v3Sent)snapshot.state.v3Sent={};
+    const newAwards=[];
+    if(snapshot.state.achievementsEnabled!==false){
+      for(const userId of snapshot.users.keys())await v3EvaluateAchievementsForUser(snapshot,userId,newAwards,phase);
+    }
+    const titleEvents=v3EvaluateTitles(snapshot,phase);
+    snapshot.state.v3Sent[marker]=true;
+    await finalEarningsSave(snapshot.state);
+    await v3SendAchievementAwards(newAwards);
+    await v3NotifyTitleEvents(titleEvents);
+  } finally {
+    v3AchievementRunLocks.delete(runKey);
   }
-  const titleEvents=v3EvaluateTitles(snapshot,phase);
-  snapshot.state.v3Sent[marker]=true;
-  await finalEarningsSave(snapshot.state);
-  await v3SendAchievementAwards(newAwards);
-  await v3NotifyTitleEvents(titleEvents);
 }
 
 bot.hears(/^мои достижения$/i,async ctx=>{
