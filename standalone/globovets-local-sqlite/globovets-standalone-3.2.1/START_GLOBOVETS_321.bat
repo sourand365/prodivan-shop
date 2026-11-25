@@ -2,7 +2,7 @@
 setlocal
 title GLOBOVETS 3.2.1 UPDATE
 echo.
-echo === ОБНОВЛЕНИЕ ГЛОБОВЦА 3.2.1 ===
+echo === GLOBOVETS 3.2.1 UPDATE ===
 echo.
 set "URL=https://raw.githubusercontent.com/sourand365/prodivan-shop/main/standalone/globovets-local-sqlite/globovets-standalone-3.2.1/UPDATE_GLOBOVETS_321.ps1"
 set "SCRIPT=%TEMP%\UPDATE_GLOBOVETS_321.ps1"
@@ -19,11 +19,11 @@ for %%A in ("%SCRIPT%") do if %%~zA LSS 100 goto failed
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT%"
 if errorlevel 1 goto failed
 echo.
-echo Обновление завершено. Нажми любую клавишу.
+echo Update complete. Press any key.
 pause >nul
 exit /b 0
 :failed
 echo.
-echo Не удалось скачать или запустить обновлятор.
+echo Could not download or run the updater.
 pause
 exit /b 1
