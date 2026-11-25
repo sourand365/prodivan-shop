@@ -1,0 +1,32 @@
+name: Globovets 3.2.1 checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'standalone/globovets-local-sqlite/globovets-standalone-3.2.1/**'
+      - '.github/workflows/globovets-321-check.yml'
+  pull_request:
+    paths:
+      - 'standalone/globovets-local-sqlite/globovets-standalone-3.2.1/**'
+      - '.github/workflows/globovets-321-check.yml'
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm --prefix 'standalone/globovets-local-sqlite/globovets-standalone-3.2.1' install --no-audit --no-fund
+      - name: Check JavaScript syntax
+        run: npm --prefix 'standalone/globovets-local-sqlite/globovets-standalone-3.2.1' run check
+      - name: Validate package metadata and updated commands
+        run: |
+          node -e "const fs=require('fs'); const p=require('./standalone/globovets-local-sqlite/globovets-standalone-3.2.1/package.json'); const s=fs.readFileSync('./standalone/globovets-local-sqlite/globovets-standalone-3.2.1/legacy.js','utf8'); if(p.version!=='3.2.1'||!p.dependencies.sharp||!s.includes('КВЕ 500')||s.includes('/^к\\s+')) process.exit(1)"
+      - name: Check PowerShell updater syntax
+        shell: pwsh
+        run: |
+          [scriptblock]::Create((Get-Content -Raw 'standalone/globovets-local-sqlite/globovets-standalone-3.2.1/UPDATE_GLOBOVETS_321.ps1')) | Out-Null
