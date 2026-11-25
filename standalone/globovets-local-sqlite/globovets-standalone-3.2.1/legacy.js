@@ -6976,9 +6976,9 @@ async function v3BuildMyDayCard(report, dateText, rankText, rankPosition, goalTa
 
   const detailRows = incomeRows.concat(extraRows);
   const rowStart = 1000;
-  const rowGap = detailRows.length > 4 ? 68 : 82;
+  const rowGap = detailRows.length > 4 ? 56 : 72;
   const teaPresent = Number(report.tea) > 0;
-  const teaY = rowStart + detailRows.length * rowGap + 34;
+  const teaY = rowStart + detailRows.length * rowGap + 20;
   const rowSvg = detailRows.map((row,index) => {
     const y = rowStart + index * rowGap;
     return '<path d="M94 '+(y+22)+'H1106" stroke="#3a3322" stroke-width="2"/>'+
@@ -7016,7 +7016,7 @@ async function v3BuildMyDayCard(report, dateText, rankText, rankPosition, goalTa
     : '<text x="112" y="780" fill="#a7a7a7" font-size="30">Установи личную цель, чтобы отслеживать прогресс</text>';
 
   const detailsBottom = teaPresent ? teaY + 70 : rowStart + detailRows.length * rowGap + 20;
-  const footerY = Math.max(1370, detailsBottom + 65);
+  const footerY = Math.max(1390, detailsBottom + 30);
 
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'" height="'+height+'" viewBox="0 0 '+width+' '+height+'">'+
     '<defs>'+
