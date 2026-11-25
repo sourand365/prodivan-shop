@@ -6971,7 +6971,7 @@ async function v3BuildMyDayCard(report, dateText, rankText, rankPosition, goalTa
     ["Этажи", report.floors, "#f4c84d", "▥"]
   ];
   const rowSvg = rows.map((r,i) => {
-    const y = 1120 + i * 68;
+    const y = 925 + i * 58;
     const icon = i===0
       ? '<g transform="translate(102 '+(y-36)+')" fill="none" stroke="#f5c936" stroke-width="8" stroke-linecap="round"><circle cx="22" cy="42" r="13"/><circle cx="78" cy="42" r="13"/><path d="M22 42l15-28h23l18 28H48l-11-17M48 14l-8-9M61 14h16"/></g>'
       : i===1
@@ -6988,7 +6988,7 @@ async function v3BuildMyDayCard(report, dateText, rankText, rankPosition, goalTa
       '<text x="1132" y="'+(y+8)+'" fill="#ffffff" font-size="39" font-weight="800" text-anchor="end">'+fmt(r[1])+' грн</text>';
   }).join("");
   const cx=1014, cy=500, radius=174, circumference=2*Math.PI*radius;
-  const dash=circumference*progress/100;
+  const dash=goal ? circumference*progress/100 : circumference*.94;
   const goalRing='<circle cx="'+cx+'" cy="'+cy+'" r="'+radius+'" fill="#080b08" stroke="#6b8b18" stroke-width="26"/>'+
     '<circle cx="'+cx+'" cy="'+cy+'" r="'+radius+'" fill="none" stroke="#30ed27" stroke-width="25" stroke-linecap="round" stroke-dasharray="'+dash+' '+circumference+'" transform="rotate(-90 '+cx+' '+cy+')"/>'+
     '<circle cx="'+cx+'" cy="'+cy+'" r="'+(radius+15)+'" fill="none" stroke="#d69c20" stroke-width="5"/>'+
