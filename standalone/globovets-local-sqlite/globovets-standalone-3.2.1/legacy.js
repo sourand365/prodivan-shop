@@ -6955,99 +6955,105 @@ function v3EscapeSvg(value) {
 async function v3BuildMyDayCard(report, dateText, rankText, rankPosition, goalTarget) {
   const sharp = __globovetsSharp;
   const safe = v3EscapeSvg;
-  const width = 1200, height = 1500;
+  const width = 1229, height = 1536;
   const goal = Number(goalTarget) > 0 ? Number(goalTarget) : 0;
   const total = Number(report.total) || 0;
   const percent = goal ? Math.round(total / goal * 100) : 0;
   const progress = goal ? Math.max(0, Math.min(100, percent)) : 0;
   const overGoal = goal ? Math.max(0, total - goal) : 0;
-
-  const incomeRows = [
-    ["Glovo", report.glovo, "#f4ca58"],
-    ["Bolt", report.bolt, "#77d99a"],
-    ["Bolt TR", report.bolttr, "#f39a59"],
-    ["IPost", report.ipost, "#ef7777"],
-    ["Лч", report.personal, "#dedede"]
+  const fmt = value => (Number(value) || 0).toLocaleString("ru-RU");
+  const rows = [
+    ["Glovo", report.glovo, "#f4ca58", "🛵"],
+    ["Bolt", report.bolt, "#27d887", "B"],
+    ["Bolt TR", report.bolttr, "#55df83", "TR"],
+    ["IPost", report.ipost, "#ff653f", "●"],
+    ["Лч", report.personal, "#f4d36d", "Лч"],
+    ["Этажи", report.floors, "#f4c84d", "▥"]
   ];
-
-  const extraRows = [
-    ["Этажи", report.floors, "#d6d6d6"]
-  ];
-
-  const detailRows = incomeRows.concat(extraRows);
-  const rowStart = 1000;
-  const rowGap = detailRows.length > 4 ? 56 : 72;
-  const teaPresent = true;
-  const teaY = rowStart + detailRows.length * rowGap + 20;
-  const rowSvg = detailRows.map((row,index) => {
-    const y = rowStart + index * rowGap;
-    return '<path d="M94 '+(y+22)+'H1106" stroke="#3a3322" stroke-width="2"/>'+
-      '<text x="116" y="'+y+'" fill="'+row[2]+'" font-size="39" font-weight="700">'+safe(row[0])+'</text>'+
-      '<text x="1080" y="'+y+'" fill="#ffffff" font-size="39" font-weight="700" text-anchor="end">'+safe(row[1])+' грн</text>';
+  const rowSvg = rows.map((r,i) => {
+    const y = 1120 + i * 68;
+    const icon = i===0
+      ? '<g transform="translate(102 '+(y-36)+')" fill="none" stroke="#f5c936" stroke-width="8" stroke-linecap="round"><circle cx="22" cy="42" r="13"/><circle cx="78" cy="42" r="13"/><path d="M22 42l15-28h23l18 28H48l-11-17M48 14l-8-9M61 14h16"/></g>'
+      : i===1
+        ? '<text x="128" y="'+(y+8)+'" fill="#27d887" font-size="42" font-weight="900">Bolt</text>'
+        : i===2
+          ? '<text x="128" y="'+(y+8)+'" fill="#55df83" font-size="35" font-weight="900">Bolt TR</text>'
+          : i===3
+            ? '<path d="M145 '+(y-25)+'c-15 0-23 11-23 24 0 18 23 42 23 42s23-24 23-42c0-13-8-24-23-24z" fill="#ff653f"/><circle cx="145" cy="'+(y-1)+'" r="7" fill="#1a0d08"/>'
+            : i===4
+              ? '<text x="145" y="'+(y+10)+'" fill="#f4d36d" font-size="45" font-style="italic" font-weight="900" text-anchor="middle">Лч</text>'
+              : '<g transform="translate(116 '+(y-32)+')" fill="none" stroke="#f4c84d" stroke-width="7"><rect x="0" y="14" width="62" height="48"/><path d="M12 14V0h38v14M15 28h8m15 0h8m-31 15h8m15 0h8m-31 15h8m15 0h8"/></g>';
+    return '<path d="M72 '+(y+28)+'H1154" stroke="#9a7428" stroke-width="2"/>'+icon+
+      '<text x="238" y="'+(y+8)+'" fill="#ffffff" font-size="40" font-weight="700">'+safe(r[0])+'</text>'+
+      '<text x="1132" y="'+(y+8)+'" fill="#ffffff" font-size="39" font-weight="800" text-anchor="end">'+fmt(r[1])+' грн</text>';
   }).join("");
-
-  const teaSvg = teaPresent
-    ? '<rect x="92" y="'+(teaY-52)+'" width="1016" height="82" rx="22" fill="#211a0d" stroke="#c39a3b" stroke-width="3"/>'+
-      '<path d="M150 '+(teaY-17)+'h32v28h-32z M182 '+(teaY-11)+'h9a10 10 0 0 1 0 20h-9" fill="none" stroke="#f1c85e" stroke-width="4"/>'+
-      '<path d="M158 '+(teaY-27)+'q-8 -10 0 -18 M171 '+(teaY-27)+'q-8 -10 0 -18" fill="none" stroke="#f1c85e" stroke-width="3" stroke-linecap="round"/>'+
-      '<text x="220" y="'+(teaY+8)+'" fill="#f4d274" font-size="39" font-weight="800">Чаевые</text>'+
-      '<text x="1080" y="'+(teaY+8)+'" fill="#ffe28b" font-size="39" font-weight="800" text-anchor="end">+'+safe(Number(report.tea)||0)+' грн</text>'
-    : "";
-
-  const detailsEmpty = !detailRows.length && !teaPresent
-    ? '<text x="116" y="'+rowStart+'" fill="#a7a7a7" font-size="32">Сегодня записей пока нет</text>'
-    : "";
-
-  const gaugeCx = 930, gaugeCy = 440, radius = 132;
-  const circumference = 2 * Math.PI * radius;
-  const dash = circumference * progress / 100;
-  const gaugeSvg = goal
-    ? '<circle cx="'+gaugeCx+'" cy="'+gaugeCy+'" r="'+radius+'" fill="none" stroke="#383838" stroke-width="24"/>'+
-      '<circle cx="'+gaugeCx+'" cy="'+gaugeCy+'" r="'+radius+'" fill="none" stroke="#3bd17c" stroke-width="24" stroke-linecap="round" stroke-dasharray="'+dash+' '+circumference+'" transform="rotate(-90 '+gaugeCx+' '+gaugeCy+')"/>'+
-      '<text x="'+gaugeCx+'" y="'+(gaugeCy-4)+'" fill="#ffffff" font-size="68" font-weight="900" text-anchor="middle">'+safe(percent)+'%</text>'+
-      '<text x="'+gaugeCx+'" y="'+(gaugeCy+43)+'" fill="#f3d06d" font-size="25" font-weight="800" text-anchor="middle">ЦЕЛЬ</text>'+
-      '<text x="'+gaugeCx+'" y="'+(gaugeCy+190)+'" fill="#bdbdbd" font-size="26" text-anchor="middle">'+safe(total)+' / '+safe(goal)+' грн</text>'
-    : '<circle cx="'+gaugeCx+'" cy="'+gaugeCy+'" r="'+radius+'" fill="#17150f" stroke="#80652b" stroke-width="4"/>'+
-      '<text x="'+gaugeCx+'" y="'+(gaugeCy-4)+'" fill="#f3d06d" font-size="32" font-weight="800" text-anchor="middle">ЦЕЛЬ</text>'+
-      '<text x="'+gaugeCx+'" y="'+(gaugeCy+42)+'" fill="#bdbdbd" font-size="24" text-anchor="middle">не задана</text>';
-
-  const overSvg = goal
-    ? '<text x="112" y="780" fill="#3bd17c" font-size="34" font-weight="800">СВЕРХ ЦЕЛИ: +'+safe(overGoal)+' грн</text>'
-    : '<text x="112" y="780" fill="#a7a7a7" font-size="30">Установи личную цель, чтобы отслеживать прогресс</text>';
-
-  const detailsBottom = teaPresent ? teaY + 70 : rowStart + detailRows.length * rowGap + 20;
-  const footerY = 1400;
-
-  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'" height="'+height+'" viewBox="0 0 '+width+' '+height+'">'+
-    '<defs>'+
-      '<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#070808"/><stop offset=".55" stop-color="#17150e"/><stop offset="1" stop-color="#080909"/></linearGradient>'+
-      '<linearGradient id="gold" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8d6a22"/><stop offset=".5" stop-color="#ffe17a"/><stop offset="1" stop-color="#8d6a22"/></linearGradient>'+
-      '<filter id="glow"><feGaussianBlur stdDeviation="5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>'+
-    '</defs>'+
-    '<rect width="1200" height="1500" fill="url(#bg)"/>'+
-    '<path d="M0 0H1200V18H0Z M0 1482H1200V1500H0Z" fill="url(#gold)"/>'+
-    '<rect x="38" y="38" width="1124" height="1424" rx="38" fill="none" stroke="#b18a32" stroke-width="3"/>'+
-    '<text x="92" y="132" fill="#f5d36a" font-size="62" font-style="italic" font-weight="900">Мой день</text>'+
-    '<text x="1100" y="126" fill="#ffffff" font-size="34" font-weight="700" text-anchor="end">'+safe(dateText)+'</text>'+
-    '<path d="M92 166H1108" stroke="#80652b" stroke-width="3"/>'+
-    '<text x="96" y="280" fill="#ffffff" font-size="78" font-weight="900">'+safe(report.name || "Курьер")+'</text>'+
-    '<text x="100" y="342" fill="#f5d36a" font-size="34" font-weight="800">'+safe(rankText || "КУРЬЕР НА ЛИНИИ")+'</text>'+
-    '<rect x="94" y="400" width="1012" height="470" rx="32" fill="#10110e" stroke="#8e702d" stroke-width="3"/>'+
-    '<text x="132" y="478" fill="#c8c8c8" font-size="30" font-weight="800">ЗАРАБОТАНО ЗА ДЕНЬ</text>'+
-    '<text x="132" y="590" fill="#f7d56e" font-size="88" font-weight="900">'+safe(total)+' грн</text>'+
-    '<path d="M132 632H690" stroke="#80652b" stroke-width="2"/>'+
-    '<text x="132" y="710" fill="#f3d06d" font-size="31" font-weight="800">МЕСТО В ТОПЕ ДНЯ</text>'+
-    '<text x="132" y="790" fill="#ffffff" font-size="68" font-weight="900">#'+safe(rankPosition || "—")+'</text>'+
-    gaugeSvg+
-    overSvg+
-    '<text x="96" y="950" fill="#f5d36a" font-size="40" font-weight="900">ПОДРОБНЕЕ</text>'+
-    '<path d="M94 970H1106" stroke="#80652b" stroke-width="2"/>'+
-    rowSvg+teaSvg+detailsEmpty+
-    '<path d="M94 '+footerY+'H1106" stroke="#80652b" stroke-width="2"/>'+
-    '<text x="110" y="'+(footerY+55)+'" fill="#a9a9a9" font-size="25">GLOBOVETS • МОТОКУРЬЕР</text>'+
-    '<text x="1090" y="'+(footerY+55)+'" fill="#f3d06d" font-size="25" font-weight="700" text-anchor="end">'+(goal && percent>=100 ? "ЦЕЛЬ ВЫПОЛНЕНА ✓" : "ДЕНЬ В РАБОТЕ")+'</text>'+
-    '</svg>';
-
+  const cx=1014, cy=500, radius=174, circumference=2*Math.PI*radius;
+  const dash=circumference*progress/100;
+  const goalRing='<circle cx="'+cx+'" cy="'+cy+'" r="'+radius+'" fill="#080b08" stroke="#6b8b18" stroke-width="26"/>'+
+    '<circle cx="'+cx+'" cy="'+cy+'" r="'+radius+'" fill="none" stroke="#30ed27" stroke-width="25" stroke-linecap="round" stroke-dasharray="'+dash+' '+circumference+'" transform="rotate(-90 '+cx+' '+cy+')"/>'+
+    '<circle cx="'+cx+'" cy="'+cy+'" r="'+(radius+15)+'" fill="none" stroke="#d69c20" stroke-width="5"/>'+
+    '<text x="'+cx+'" y="'+(cy-43)+'" fill="#f6d13c" font-size="43" font-style="italic" font-weight="900" text-anchor="middle">ЦЕЛЬ</text>'+
+    '<text x="'+cx+'" y="'+(cy+34)+'" fill="#ffffff" font-size="78" font-weight="900" text-anchor="middle">'+(goal?safe(percent):"0")+'%</text>'+
+    '<text x="'+cx+'" y="'+(cy+82)+'" fill="#bdbdbd" font-size="29" font-weight="700" text-anchor="middle">'+(goal?fmt(total)+" / "+fmt(goal)+" грн":"не задана")+'</text>';
+  const safeName=safe(report.name||"Курьер");
+  const tea=fmt(report.tea);
+  const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'" height="'+height+'" viewBox="0 0 '+width+' '+height+'">'+
+  '<defs>'+
+    '<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#050606"/><stop offset=".48" stop-color="#19140b"/><stop offset="1" stop-color="#030404"/></linearGradient>'+
+    '<linearGradient id="gold" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#6c4307"/><stop offset=".45" stop-color="#ffe45c"/><stop offset=".72" stop-color="#b77a13"/><stop offset="1" stop-color="#ffe36a"/></linearGradient>'+
+    '<linearGradient id="panel" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#17130c"/><stop offset=".5" stop-color="#050606"/><stop offset="1" stop-color="#1a1408"/></linearGradient>'+
+    '<linearGradient id="tea" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#241502"/><stop offset=".45" stop-color="#b87908"/><stop offset=".7" stop-color="#201303"/><stop offset="1" stop-color="#6d4307"/></linearGradient>'+
+    '<filter id="glow"><feGaussianBlur stdDeviation="7" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>'+
+    '<pattern id="carbon" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M0 0h12v12H0zM12 12h12v12H12z" fill="#ffffff" opacity=".025"/></pattern>'+
+  '</defs>'+
+  '<rect width="1229" height="1536" fill="url(#bg)"/><rect width="1229" height="1536" fill="url(#carbon)"/>'+
+  '<path d="M0 0H1229V1536H0Z" fill="none" stroke="url(#gold)" stroke-width="12"/>'+
+  '<path d="M18 16H1188l25 28v1450l-24 24H38L10 1490V42Z" fill="none" stroke="#f2c342" stroke-width="3"/>'+
+  '<path d="M0 0L210 0 0 210Z" fill="url(#gold)" opacity=".35"/>'+
+  '<path d="M18 112H1210" stroke="url(#gold)" stroke-width="5"/>'+
+  '<text x="88" y="104" fill="#ffdc48" font-size="83" font-style="italic" font-weight="1000" letter-spacing="-3">МОЙ ДЕНЬ</text>'+
+  '<g transform="translate(842 34)" fill="none" stroke="#ffd83f" stroke-width="8"><rect x="0" y="8" width="52" height="52" rx="5"/><path d="M13 0v17M39 0v17M0 26h52M14 36h8m10 0h8m-26 13h8m10 0h8"/></g>'+
+  '<text x="1180" y="82" fill="#ffffff" font-size="42" font-weight="800" text-anchor="end">'+safe(dateText)+'</text>'+
+  '<!-- stylized night skyline -->'+
+  '<g fill="#080b0c" stroke="#5a421b" stroke-width="2" opacity=".95"><path d="M760 340V210h42v-44h24v174zM830 340V188h34v-60h16v212zM890 340V220h48v-82h20v202zM970 340V172h40v-42h16v210zM1040 340V208h38v-60h18v200zM1110 340V190h44v-55h18v205z"/><path d="M1000 130l18-90 18 90" fill="none"/></g>'+
+  '<g fill="#f5c84c" opacity=".65">'+Array.from({length:34},(_,i)=>'<rect x="'+(775+(i%7)*55)+'" y="'+(195+Math.floor(i/7)*32)+'" width="7" height="10"/>').join("")+'</g>'+
+  '<!-- helmet and rider silhouette -->'+
+  '<path d="M0 330Q25 245 104 202Q145 154 224 163Q306 173 332 257L355 360H0Z" fill="#080a0b" stroke="#c28d20" stroke-width="7"/>'+
+  '<path d="M86 255Q95 144 205 135Q294 137 318 232L302 300 236 342 130 322Z" fill="#101316" stroke="#f3c33d" stroke-width="8"/>'+
+  '<path d="M120 236Q143 165 223 164Q285 170 300 238L272 273 155 284Z" fill="#050708" stroke="#b7b7b7" stroke-width="8"/>'+
+  '<path d="M146 218Q210 176 280 218L264 254 165 270Z" fill="#d5a42c" opacity=".65"/>'+
+  '<path d="M40 322Q115 270 194 304L258 368H0Z" fill="#080a0b" stroke="#b88925" stroke-width="5"/>'+
+  '<path d="M0 362L110 310 168 380H0Z" fill="#111518" stroke="#e5b735" stroke-width="4"/>'+
+  '<text x="390" y="252" fill="#ffffff" font-size="79" font-style="italic" font-weight="900">'+safeName+'</text>'+
+  '<path d="M386 280h460" stroke="url(#gold)" stroke-width="4"/>'+
+  '<text x="392" y="337" fill="#ffd638" font-size="43" font-style="italic" font-weight="900">'+safe(rankText||"КУРЬЕР НА ЛИНИИ")+'</text>'+
+  '<!-- main earnings panel -->'+
+  '<path d="M28 390L68 362H1160L1200 405V742L1158 770H66L28 738Z" fill="url(#panel)" stroke="url(#gold)" stroke-width="7" filter="url(#glow)"/>'+
+  '<path d="M46 402L78 382H1150" stroke="#fff0a0" stroke-width="2" opacity=".7"/>'+
+  '<text x="390" y="446" fill="#f0f0f0" font-size="39" font-style="italic" font-weight="900" text-anchor="middle">ЗАРАБОТАНО ЗА ДЕНЬ</text>'+
+  '<text x="405" y="575" fill="#ffdb3f" font-size="118" font-style="italic" font-weight="1000" text-anchor="middle">'+fmt(total)+' грн</text>'+
+  '<path d="M55 615H840" stroke="url(#gold)" stroke-width="3"/>'+
+  '<text x="206" y="674" fill="#d8d8d8" font-size="31" font-style="italic" font-weight="900">МЕСТО В ТОПЕ ДНЯ</text>'+
+  '<text x="410" y="735" fill="#ffffff" font-size="62" font-weight="1000" text-anchor="middle">#'+safe(rankPosition||"—")+'</text>'+
+  '<path d="M532 635V738" stroke="#b88b2b" stroke-width="3"/>'+
+  '<text x="680" y="690" fill="#38ef4a" font-size="57" font-style="italic" font-weight="1000" text-anchor="middle">+'+fmt(overGoal)+' грн</text>'+
+  '<text x="680" y="730" fill="#e5e5e5" font-size="27" font-style="italic" font-weight="800" text-anchor="middle">СВЕРХ ЦЕЛИ</text>'+
+  goalRing+
+  '<!-- details section -->'+
+  '<path d="M30 800L64 770H1160L1200 810V1275L1160 1300H65L28 1264Z" fill="url(#panel)" stroke="url(#gold)" stroke-width="6"/>'+
+  '<text x="74" y="855" fill="#ffdb3e" font-size="55" font-style="italic" font-weight="1000">/// ПОДРОБНЕЕ</text>'+
+  '<path d="M52 875H1172" stroke="#c39429" stroke-width="3"/>'+
+  rowSvg+
+  '<!-- separate tips plate -->'+
+  '<path d="M36 1320L70 1298H1155L1190 1330V1450L1154 1478H70L36 1448Z" fill="url(#tea)" stroke="url(#gold)" stroke-width="7" filter="url(#glow)"/>'+
+  '<g transform="translate(86 1340)"><ellipse cx="62" cy="91" rx="70" ry="17" fill="#e7b52c"/><path d="M16 24h86l-8 61H25Z" fill="#d99a16" stroke="#ffe276" stroke-width="6"/><path d="M101 38q58-10 34 40q-9 18-36 6" fill="none" stroke="#ffd44b" stroke-width="9"/><path d="M35 10q-14-25 4-45m24 45q-12-24 5-43m20 43q-10-20 6-37" fill="none" stroke="#ffe27a" stroke-width="5"/></g>'+
+  '<text x="278" y="1418" fill="#ffdb42" font-size="66" font-style="italic" font-weight="1000">Чаевые</text>'+
+  '<text x="1135" y="1418" fill="#ffdc45" font-size="67" font-style="italic" font-weight="1000" text-anchor="end">+'+tea+' грн</text>'+
+  '<path d="M30 1490H1198" stroke="url(#gold)" stroke-width="4"/>'+
+  '<text x="70" y="1520" fill="#aeb0b0" font-size="24" font-style="italic" font-weight="800">GLOBOVETS • МОТОКУРЬЕР</text>'+
+  '<circle cx="900" cy="1510" r="11" fill="#32ed42"/>'+
+  '<text x="925" y="1520" fill="#39ed43" font-size="27" font-style="italic" font-weight="900">'+(goal&&percent>=100?"ЦЕЛЬ ВЫПОЛНЕНА":"ДЕНЬ В РАБОТЕ")+'</text>'+
+  '</svg>';
   return sharp(Buffer.from(svg)).png().toBuffer();
 }
 
