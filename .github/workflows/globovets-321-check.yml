@@ -24,6 +24,7 @@ jobs:
       - name: Check JavaScript syntax
         run: npm --prefix 'standalone/globovets-local-sqlite/globovets-standalone-3.2.1' run check
       - name: Test PNG card rendering dependency
+        working-directory: standalone/globovets-local-sqlite/globovets-standalone-3.2.1
         run: |
           node -e 'require("sharp")(Buffer.from("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"32\" height=\"32\"><rect width=\"32\" height=\"32\" fill=\"#111\"/></svg>")).png().toBuffer().then(data=>{if(!data.length)process.exit(1);console.log("PNG rendering OK")})'
       - name: Validate package metadata and updated commands
