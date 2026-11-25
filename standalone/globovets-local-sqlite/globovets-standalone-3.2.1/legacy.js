@@ -19,7 +19,7 @@ bot.use(async (ctx,next)=>{
   try{
     const raw=String(ctx.message?.text||"").trim();
     if(raw && ctx.from?.id){
-      const recognized=/^(?:\/|(?:г|б|а|э|л)\s*\+?\s*\d+|чай\s*\+?\s*\d+|мой день$|моя неделя$|мой месяц(?:\s|$)|календарь(?:\s|$)|топ(?:\s|$)|статистика$|цель\s+\d+|сравнить\s|достижения$|мои достижения$|топ достижений$|запись\s|логи\s|отмена\s|диамант\s*[+-]|золото\s*[+-])/i.test(raw);
+      const recognized=/^(?:\/|(?:г|б|а|э|л)\s*\+?\s*\d+|чай\s*\+?\s*\d+|мой день$|мой день(?:\\s|$)|моя неделя$|мой месяц(?:\s|$)|календарь(?:\s|$)|топ(?:\s|$)|статистика$|цель\s+\d+|сравнить\s|достижения$|мои достижения$|топ достижений$|запись\s|логи\s|отмена\s|диамант\s*[+-]|золото\s*[+-])/i.test(raw);
       if(recognized){
         const state=await v3LoadEarningsState();
         const uid=String(ctx.from.id),day=v3DateISO(finalEarningsToday());
@@ -27,7 +27,7 @@ bot.use(async (ctx,next)=>{
         state.achievementActivity[uid]=state.achievementActivity[uid]||{};
         state.achievementActivity[uid][day]=state.achievementActivity[uid][day]||{commands:0,statsOpens:0,goalChanges:0};
         state.achievementActivity[uid][day].commands=(Number(state.achievementActivity[uid][day].commands)||0)+1;
-        if(/^(?:топ\s+чай|топ\s+неделя|топ\s+месяц|топ\s+день|мой день$|моя неделя$|мой месяц(?:\s|$))/i.test(raw)){
+        if(/^(?:топ\s+чай|топ\s+неделя|топ\s+месяц|топ\s+день|мой день$|мой день(?:\\s|$)|моя неделя$|мой месяц(?:\s|$))/i.test(raw)){
           state.achievementActivity[uid][day].statsOpens=(Number(state.achievementActivity[uid][day].statsOpens)||0)+1;
         }
         await finalEarningsSave(state);
@@ -7058,15 +7058,41 @@ async function v3BuildMyDayCard(report, dateText, rankText, rankPosition, goalTa
 }
 
 bot.hears(
-  /^мой день$/i,
+  /^мой день(?:\\s+(.+))?$/i,
   async ctx => {
     try {
       const userId = String(ctx.from.id);
-      const dateKey = finalEarningsToday();
+      const requestedDate = String(ctx.match?.[1] || "").trim();
+      let dateKey;
+      if (requestedDate) {
+        const parsed = finalEarningsParseDate(requestedDate);
+        if (!parsed) {
+          await ctx.reply("❌ Неверная дата. Используй формат: Мой день 29.10.2026");
+          return;
+        }
+        dateKey = finalEarningsISODate(parsed);
+        const todayParsed = finalEarningsParseDate(finalEarningsToday());
+        if (dateKey > finalEarningsISODate(todayParsed)) {
+          await ctx.reply("❌ Нельзя посмотреть будущую дату.");
+          return;
+        }
+      } else {
+        dateKey = finalEarningsToday();
+      }
+
       const report = await finalEarningsReport(userId,dateKey);
       const state = await v3LoadEarningsState();
-      const dailyGoal = state.goals?.day?.[userId];
-      const goalTarget = dailyGoal?.dateKey === v3DateISO(dateKey) ? Number(dailyGoal.target)||0 : 0;
+      const goalDateKey = v3DateISO(dateKey);
+      const historicalGoal = state.goalHistory?.day?.[userId]?.[goalDateKey];
+      const activeGoal = state.goals?.day?.[userId];
+      const goalTarget = requestedDate
+        ? (Number(historicalGoal?.target) || 0)
+        : (activeGoal?.dateKey === goalDateKey ? Number(activeGoal.target)||0 : 0);
+
+      if (!(Number(report.total) > 0)) {
+        await ctx.reply("За "+finalEarningsDotDate(finalEarningsParseDate(dateKey))+" записей не найдено.");
+        return;
+      }
 
       const titleEntry = Object.entries(state.titles || {}).find(([,title]) =>
         (title.holders || []).some(holder => String(holder.userId) === userId)
@@ -7084,9 +7110,9 @@ bot.hears(
         const png = await v3BuildMyDayCard(report,dateText,rankText,rankPosition,goalTarget);
         await ctx.replyWithPhoto({source:png},{
           caption:"💰 МОЙ ДЕНЬ • "+report.name+
-            "\n📅 "+dateText+
-            "\n🏆 Место в топе дня: "+(rankPosition === "—" ? "нет в рейтинге" : "#"+rankPosition)+
-            "\n🎯 Цель: "+(goalTarget ? goalTarget+" грн ("+percent+"%)" : "не установлена")
+            "\\n📅 "+dateText+
+            "\\n🏆 Место в топе дня: "+(rankPosition === "—" ? "нет в рейтинге" : "#"+rankPosition)+
+            "\\n🎯 Цель: "+(goalTarget ? goalTarget+" грн ("+percent+"%)" : "не установлена")
         });
       } catch (imageError) {
         console.error("MY DAY CARD ERROR:",imageError);
@@ -7095,12 +7121,12 @@ bot.hears(
           ["IPost",report.ipost],["Лч",report.personal],["Этажи",report.floors]
         ];
         await ctx.reply(
-          "💰 МОЙ ДЕНЬ\n📅 "+dateText+"\n👑 "+rankText+
-          "\n🏆 Место в топе дня: "+(rankPosition === "—" ? "нет в рейтинге" : "#"+rankPosition)+
-          "\n\n📝 Подробнее:\n"+rows.map(row=>row[0]+" — "+(Number(row[1])||0)+" грн").join("\n")+
-          "\n☕ Чаевые — "+(Number(report.tea)||0)+" грн"+
-          "\n\n💰 Заработано за день — "+report.total+" грн"+
-          (goalTarget ? "\n🎯 Цель дня — "+goalTarget+" грн ("+percent+"%)\n🟢 Сверх цели: +"+Math.max(0,report.total-goalTarget)+" грн" : "")
+          "💰 МОЙ ДЕНЬ\\n📅 "+dateText+"\\n👑 "+rankText+
+          "\\n🏆 Место в топе дня: "+(rankPosition === "—" ? "нет в рейтинге" : "#"+rankPosition)+
+          "\\n\\n📝 Подробнее:\\n"+rows.map(row=>row[0]+" — "+(Number(row[1])||0)+" грн").join("\\n")+
+          "\\n☕ Чаевые — "+(Number(report.tea)||0)+" грн"+
+          "\\n\\n💰 Заработано за день — "+report.total+" грн"+
+          (goalTarget ? "\\n🎯 Цель дня — "+goalTarget+" грн ("+percent+"%)\\n🟢 Сверх цели: +"+Math.max(0,report.total-goalTarget)+" грн" : "")
         );
       }
     } catch (error) {
@@ -7109,7 +7135,6 @@ bot.hears(
     }
   }
 );
-
 
 // ============================================================
 // 🏆 ТОП ДЕНЬ
@@ -8222,7 +8247,7 @@ async function finalEarningsShowPeriod(
 // ============================================================
 
 bot.hears(
-  /^моя неделя$/i,
+  /^мой день(?:\\s|$)|моя неделя$/i,
   async ctx => {
 
     await finalEarningsShowPeriod(
@@ -10444,7 +10469,7 @@ const V3_SECRET_ACHIEVEMENTS = [
   {
     "id": "statistik",
     "name": "Статистик",
-    "description": "10 раз открыть топ чай, топ неделю, топ месяц, топ день, мой день, моя неделя или мой месяц за день",
+    "description": "10 раз открыть топ чай, топ неделю, топ месяц, топ день, мой день, мой день(?:\\s|$)|моя неделя или мой месяц за день",
     "secret": true
   },
   {
