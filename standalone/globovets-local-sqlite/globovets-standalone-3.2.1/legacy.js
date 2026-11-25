@@ -7016,7 +7016,7 @@ async function v3BuildMyDayCard(report, dateText, rankText, rankPosition, goalTa
     : '<text x="112" y="780" fill="#a7a7a7" font-size="30">Установи личную цель, чтобы отслеживать прогресс</text>';
 
   const detailsBottom = teaPresent ? teaY + 70 : rowStart + detailRows.length * rowGap + 20;
-  const footerY = Math.max(1390, detailsBottom + 30);
+  const footerY = 1400;
 
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'" height="'+height+'" viewBox="0 0 '+width+' '+height+'">'+
     '<defs>'+
@@ -7086,9 +7086,8 @@ bot.hears(
         console.error("MY DAY CARD ERROR:",imageError);
         const rows = [
           ["Glovo",report.glovo],["Bolt",report.bolt],["Bolt TR",report.bolttr],
-          ["IPost",report.ipost],["Ля",report.personal],["Этажи",report.floors]
-        ].filter(row => Number(row[1]) > 0);
-        if (Number(report.tea) > 0) rows.push(["☕ Чаевые",report.tea]);
+          ["IPost",report.ipost],["Лч",report.personal],["Этажи",report.floors]
+        ];
         await ctx.reply(
           "💰 МОЙ ДЕНЬ\n📅 "+dateText+"\n👑 "+rankText+
           "\n🏆 Место в топе дня: "+(rankPosition === "—" ? "нет в рейтинге" : "#"+rankPosition)+
