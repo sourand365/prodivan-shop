@@ -4,7 +4,7 @@ title GLOBOVETS 3.2.1 UPDATE
 echo.
 echo === GLOBOVETS 3.2.1 UPDATE ===
 echo.
-set "URL=https://raw.githubusercontent.com/sourand365/prodivan-shop/main/standalone/globovets-local-sqlite/globovets-standalone-3.2.1/UPDATE_GLOBOVETS_321.ps1"
+set "URL=https://raw.githubusercontent.com/sourand365/prodivan-shop/main/standalone/globovets-local-sqlite/globovets-standalone-3.2.1/UPDATE_GLOBOVETS_321.ps1?v=321ascii2"
 set "SCRIPT=%TEMP%\UPDATE_GLOBOVETS_321.ps1"
 del "%SCRIPT%" >nul 2>&1
 where curl.exe >nul 2>&1
