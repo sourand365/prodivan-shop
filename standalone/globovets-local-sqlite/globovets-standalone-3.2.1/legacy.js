@@ -6953,7 +6953,7 @@ function v3EscapeSvg(value) {
 }
 
 async function v3BuildMyDayCard(report, dateText, rankText, goalTarget) {
-  const sharp = require("sharp");
+  const sharp = __globovetsSharp;
   const width = 1200, height = 1500;
   const safe = v3EscapeSvg;
   const rows = [
